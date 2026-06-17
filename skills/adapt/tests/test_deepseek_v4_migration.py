@@ -58,7 +58,6 @@ def test_target_v4_package_is_present():
         "deepseek_v4_model.py",
         "deepseek_v4_csa.py",
         "deepseek_v4_attention.py",
-        "deepseek_v4_dsa_compat.py",
     ):
         assert (pkg / name).is_file(), f"missing {name}"
 
@@ -138,7 +137,6 @@ def test_megatron_does_not_carry_v4_specifics():
         "DeepseekV4",
         "deepseek_v4",
         "csa_compress_ratios",
-        "moe_n_hash_layers",
         "o_lora_rank",
     )
     mc_root = TARGET_MEGATRON / "megatron"
@@ -212,3 +210,110 @@ def test_deepseek_v4_migration_verifier_passes():
     assert validator["name"] == "deepseek-v4-migration"
     assert validator["status"] == "passed"
     assert validator["metrics"]["error_count"] == 0
+
+
+def _write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def test_verifier_matches_debug0616_contract_without_dsa_compat_and_with_generic_hash_help(tmp_path):
+    omni = tmp_path / "AIAK-Training-Omni"
+    megatron = tmp_path / "AIAK-Megatron"
+
+    v4_pkg = omni / "loongforge/models/foundation/deepseek_v4"
+    for name in (
+        "__init__.py",
+        "deepseek_v4_config.py",
+        "deepseek_v4_layer_spec.py",
+        "deepseek_v4_model.py",
+        "deepseek_v4_csa.py",
+        "deepseek_v4_attention.py",
+    ):
+        _write(v4_pkg / name, "\n".join([
+            "class DeepseekV4Config: pass",
+            "class DeepseekV4Model: pass",
+            "BaseModelMLAConfig",
+            "LanguageModelFamilies.DEEPSEEK_V4",
+            "moe_n_hash_layers",
+            "csa_compress_ratios",
+            "o_groups",
+            "swiglu_limit",
+            "get_deepseek_v4_decoder_block_and_mtp_spec",
+            "DSv4HybridSelfAttention",
+            "CompressedSparseAttention",
+            "from loongforge.models.foundation.deepseek_v4.deepseek_v4_csa",
+            "config_class = DeepseekV4Config",
+            "register_load_state_dict_post_hook",
+            "_extra_state",
+        ]))
+    _write(
+        omni / "configs/models/deepseek4/deepseek_v4_flash_base_lite_4l_mtp1.yaml",
+        "\n".join([
+            "_target_: loongforge.models.foundation.deepseek_v4.DeepseekV4Config",
+            "model_type: deepseek_v4",
+            "num_layers: 4",
+            "mtp_num_layers: 1",
+            "csa_compress_ratios: [0, 0, 4, 128, 0]",
+            "moe_n_hash_layers: 3",
+            "experimental_attention_variant: dsv4_hybrid",
+            "moe_router_score_function: sqrtsoftplus",
+            "qk_layernorm: true",
+            "head_dim: 512",
+            "qk_rope_head_dim: 64",
+            "o_groups: 8",
+            "o_lora_rank: 1024",
+            "swiglu_limit: 10.0",
+        ]),
+    )
+    _write(
+        omni / "configs/models/deepseek4/deepseek_v4_flash_base.yaml",
+        "\n".join([
+            "_target_: loongforge.models.foundation.deepseek_v4.DeepseekV4Config",
+            "model_type: deepseek_v4",
+            "experimental_attention_variant: dsv4_hybrid",
+            "csa_compress_ratios",
+            "moe_n_hash_layers",
+            "moe_router_score_function: sqrtsoftplus",
+            "qk_layernorm: true",
+            "mtp_num_layers",
+        ]),
+    )
+    _write(omni / "configs/models/deepseek4/ckpt_convert/deepseek_v4_convert.yaml", "tid2eid\ncompressor\nindexer\nmtp\n")
+    _write(omni / "examples/deepseek_v4/sft_v4.sh", "#!/usr/bin/env bash\n")
+    _write(omni / "loongforge/utils/constants.py", 'DEEPSEEK_V4 = "deepseek_v4"\n')
+    _write(
+        omni / "loongforge/models/foundation/__init__.py",
+        "from .deepseek_v4 import DeepseekV4Config, DeepseekV4Model\nAutoModel.register(DeepseekV4Config, DeepseekV4Model)\n",
+    )
+    _write(
+        omni / "loongforge/utils/config_map.py",
+        '"deepseek-v4-flash"\n"deepseek-v4-flash-base-sliced"\n"deepseek-v4-flash-base-lite-4l-mtp1"\n"configs/models/deepseek4"\n',
+    )
+    _write(omni / "loongforge/data/chat_template.py", 'name="deepseek4"\n')
+    _write(omni / "loongforge/train/arguments.py", '"--deepseek-v4-sft-packing"\n')
+
+    _write(megatron / "megatron/core/transformer/moe/moe_utils.py", "sqrtsoftplus\n")
+    _write(
+        megatron / "megatron/training/arguments.py",
+        "sqrtsoftplus\nLayers with layer_number <= moe_n_hash_layers use a pre-computed tid2eid\n",
+    )
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(VERIFY_SCRIPT),
+            "--scope",
+            "all",
+            "--omni-root",
+            str(omni),
+            "--megatron-root",
+            str(megatron),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    report = json.loads(proc.stdout)
+    assert report["status"] == "passed", report

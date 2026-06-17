@@ -29,7 +29,6 @@ code_paths:
   init: loongforge/models/foundation/deepseek_v4/__init__.py
   csa: loongforge/models/foundation/deepseek_v4/deepseek_v4_csa.py
   attention: loongforge/models/foundation/deepseek_v4/deepseek_v4_attention.py
-  dsa_compat: loongforge/models/foundation/deepseek_v4/deepseek_v4_dsa_compat.py
 
 omni_reference:
   model_yaml: configs/models/deepseek4/deepseek_v4_flash_base.yaml
@@ -61,7 +60,6 @@ migration:
     - DeepseekV4
     - deepseek_v4
     - csa_compress_ratios
-    - moe_n_hash_layers
     - o_lora_rank
   allowed_megatron_diff:
     description: >
