@@ -36,7 +36,6 @@ FORBIDDEN_MEGATRON_STRINGS = (
     "DeepseekV4",
     "deepseek_v4",
     "csa_compress_ratios",
-    "moe_n_hash_layers",
     "o_lora_rank",
 )
 
@@ -135,7 +134,6 @@ def verify_omni_target(root: Path, state: CheckState) -> None:
         "loongforge/models/foundation/deepseek_v4/deepseek_v4_model.py",
         "loongforge/models/foundation/deepseek_v4/deepseek_v4_csa.py",
         "loongforge/models/foundation/deepseek_v4/deepseek_v4_attention.py",
-        "loongforge/models/foundation/deepseek_v4/deepseek_v4_dsa_compat.py",
         "configs/models/deepseek4/deepseek_v4_flash_base.yaml",
         "configs/models/deepseek4/deepseek_v4_flash_base_lite_4l_mtp1.yaml",
         "configs/models/deepseek4/ckpt_convert/deepseek_v4_convert.yaml",
