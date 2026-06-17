@@ -1,0 +1,54 @@
+family: qwen3_vl
+model_category: VLM
+
+# VLM architecture: Qwen3 LLM backbone + Qwen3VisionTransformer encoder
+# Compared to Qwen2.5-VL: LLM backbone upgraded to Qwen3 (qk_layernorm=true, kv_channels=128, supports MoE)
+# Vision encoder independently implemented in qwen3_vl_vision_models/ (patch_size=16, LayerNorm, DeepStack mechanism, bilinear interpolation pos embed)
+# mRoPE continues Qwen2.5-VL design, rotary_emb_func changed to Qwen3VLRotaryEmbedding, mrope_section=[24,20,20]
+
+hf_reference:
+  path: /Users/weizhihao/workspace/agent_skills/harness/hf_models/transformers/src/transformers/models/qwen3_vl
+  model_type: qwen3_vl
+
+structural_tags:
+  has_mla: false
+  has_moe: true               # Qwen3 LLM backbone is MoE (30B-A3B: 128 experts, active 3B; 235B-A22B: 128 experts)
+  has_qk_layernorm: true      # Qwen3 LLM backbone enables qk_layernorm=true (confirmed from qwen3/qwen_config.py and qwen3_30b_a3b.yaml); ViT side qwen3_vl_layer_spec.py uses IdentityOp (not enabled)
+  has_linear_attn: false
+  has_mtp: false
+  is_mha: false               # GQA (Qwen3 LLM backbone, num_query_groups=4)
+  vocab_size_tier: standard
+
+code_paths:
+  config:     loongforge/models/foundation/qwen3/qwen_config.py
+  layer_spec: loongforge/models/foundation/qwen3/qwen_layer_spec.py
+  model:      loongforge/models/foundation/qwen3/qwen_model.py
+  init:       loongforge/models/foundation/qwen3/__init__.py
+  # Vision Encoder (Qwen3-VL independent implementation, not shared with Qwen2.5-VL)
+  encoder:    loongforge/models/encoder/qwen3_vl_vision_models/
+
+traps:
+  - field: apply_rotary_fn (LLM vs ViT independent implementations)
+    detail: "Qwen3-VL's LLM backbone layer spec (get_qwen3_vl_layer_with_te_spec, defined in qwen3/qwen_layer_spec.py) uses apply_mrope (3D mRoPE); ViT layer spec (get_qwen3_vl_vision_model_layer_with_te_spec, defined in qwen3_vl_vision_models/qwen3_vl_layer_spec.py) uses independent apply_rotary_pos_emb (defined in rope_utils.py, supports fused TE kernel). Neither is standard apply_rotary_pos_emb and they are not interchangeable. Misuse will cause shape mismatch or position_ids 3D format parsing errors."
+  - field: qk_layernorm (LLM enabled, ViT not enabled)
+    detail: "Qwen3 LLM backbone explicitly sets qk_layernorm: true in YAML (qwen3_30b_a3b.yaml), and q_layernorm/k_layernorm in layer_spec are assigned TENorm/LocalNorm based on config.qk_layernorm. Qwen3-VL's ViT layer spec (qwen3_vl_layer_spec.py) has q_layernorm=IdentityOp and k_layernorm=IdentityOp, permanently disabled. The two use independent config instances and cannot share the same config object."
+  - field: kv_channels
+    detail: "Qwen3 LLM backbone's kv_channels=128 must be explicitly set in YAML (not evenly divisible by num_attention_heads=32, cannot be auto-derived). ViT encoder's kv_channels=72 (confirmed from qwen3_vit.yaml), independently managed by image_encoder config. The two do not interfere with each other, but during adaptation ensure kv_channels=128 in LLM YAML aligns with head_dim in HF config."
+  - field: rotary_emb_func (Qwen3VLRotaryEmbedding not Qwen2VLRotaryEmbedding)
+    detail: "Qwen3-VL's model YAML (e.g., qwen3_vl_30b_a3b.yaml) must set rotary_emb_func: Qwen3VLRotaryEmbedding in the foundation section, with mrope_section: [24, 20, 20] (different from Qwen2.5-VL's Qwen2VLRotaryEmbedding and default mrope_section). Misusing Qwen2VLRotaryEmbedding or Qwen2.5-VL's mrope_section will cause position encoding dimension allocation errors."
+  - field: DeepStack (new in Qwen3-VL, Qwen2.5-VL lacks this mechanism)
+    detail: "Qwen3VisionModel extracts deepstack_feature_lists at ViT intermediate layers (default [8, 16, 24] layers), and projects them to LLM hidden size through deepstack_merger_list (multiple Adapter instances) before fusing with main-path tokens. Qwen2.5-VL lacks this mechanism. During adaptation, the image_projector's Adapter serves both main-path projection and DeepStack merger; ensure spatial_merge_size configuration is consistent."
+  - field: ViT has no windowed attention
+    detail: >
+      Qwen3-VL ViT removes Qwen2.5-VL's windowed attention mechanism, using global attention uniformly (cu_seqlens full sequence).
+      If Qwen2.5-VL ViT forward logic is applied directly (including fullatt_block_indexes check),
+      windowed attention will be incorrectly applied to some layers, causing ViT output inconsistency.
+      Correct approach: Qwen3-VL ViT layer spec does not pass fullatt_block_indexes; all layers use uniform global attention.
+
+omni_reference:
+  model_yaml:     configs/models/qwen3_vl/qwen3_vl_30b_a3b.yaml
+  # VLM convert three stages:
+  #   ViT:       configs/models/image_encoder/ckpt_convert/qwen3_vit_convert.yaml
+  #   projector: configs/models/image_projector/ckpt_convert/qwen_mlp_adapter_convert.yaml
+  #   LLM:       configs/models/qwen3/ckpt_convert/qwen3_moe_convert_qwen3vl.yaml
+  example_script: examples/qwen3_vl/pretrain/pretrain_qwen3_vl_30b_a3b.sh

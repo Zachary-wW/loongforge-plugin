@@ -1,0 +1,83 @@
+# Expected parallel-strategy outcomes for DeepSeek-V4 attention witness.
+# Phase 4 + parallel-implementer track (delivered in batch 4).
+#
+# Anchored to:
+#   commit       : b962a1b99319de613c0cf180721af377bd23778c
+#   file         : loongforge/models/foundation/deepseek_v4/deepseek_v4_attention.py
+
+version: 1
+
+baseline_state:
+  # State of parallelism support BEFORE the parallel-implementer track lands.
+  tp:
+    feature_matrix_status: human_needed
+    reason: "Compressor / Indexer / kv_proj are all duplicated; manual gather/scatter retrofit in forward; no TP plan."
+  cp:
+    feature_matrix_status: human_needed
+    reason: "sparse_indexer needs all-gather of indices under CP; not implemented."
+  pp:
+    feature_matrix_status: passed_or_skipped
+    reason: "Inherits Megatron MTP layout; not the source of the failure."
+  ep:
+    feature_matrix_status: passed
+    reason: "Standard Megatron MoE EP; outside attention file scope."
+
+# -----------------------------------------------------------------------------
+# Batch 4 acceptance: at least the TP axis must move human_needed → passed
+# via the parallel-implementer + recipe path, not via hand-written retrofit.
+# -----------------------------------------------------------------------------
+
+required_outcomes_after_batch_4:
+
+  - axis: tp
+    feature_matrix_status_must_be: passed
+    via:
+      mechanism: parallel-implementer
+      recipe: parallel_recipes/tp_for_sparse_attention.md
+      auxiliary_recipes:
+        - parallel_recipes/tp_for_mla.md             # for kv_proj
+        - parallel_recipes/grouped_output_projection.md
+    proof_artifacts:
+      - run_dir/phases/phase4/TP/result.json:status == "passed"
+      - run_dir/phases/phase4/TP/run.sh exists and was actually executed
+      - phase3 loss-diff thresholds for TP=2 and TP=4 still pass
+    forbidden_in_resulting_code:
+      # The parallel-implementer must NOT solve TP by sprinkling
+      # gather/scatter primitives in forward. If the resulting
+      # implementation still imports these in attention/model/layer_spec,
+      # the witness fails.
+      grep_count_must_be_zero:
+        - "from megatron.core.tensor_parallel.mappings import gather_"
+        - "from megatron.core.tensor_parallel.mappings import scatter_"
+      in_files:
+        - loongforge/models/foundation/deepseek_v4/deepseek_v4_attention.py
+        - loongforge/models/foundation/deepseek_v4/deepseek_v4_model.py
+        - loongforge/models/foundation/deepseek_v4/deepseek_v4_layer_spec.py
+
+  - axis: cp
+    feature_matrix_status_must_be_one_of: [passed, human_needed_with_recipe_gap]
+    rationale: |
+      CP for sparse-indexer is genuinely unsolved upstream. Acceptable
+      outcomes are either (a) recipe lands and CP passes, or (b) the
+      pipeline correctly emits human_needed with `recipe_gap:
+      sparse_attention×cp` and that gap is recorded in
+      parallel_recipes/INDEX.md. Silent skip / silent failure is NOT
+      acceptable.
+    forbidden_outcomes:
+      - silent_skip
+      - human_needed_without_recipe_gap_marker
+
+# -----------------------------------------------------------------------------
+# Negative tests — things batch 4 must NOT regress.
+# -----------------------------------------------------------------------------
+
+corpus_parallel_must_not_regress:
+  - model: deepseek_v3
+    axes: [tp, ep, pp]
+    expectation: "feature_matrix rows that were `passed` before batch 4 remain `passed` after."
+  - model: qwen3
+    axes: [tp, pp]
+    expectation: passed_remains_passed
+  - model: qwen2_5_vl
+    axes: [tp, pp]
+    expectation: passed_remains_passed

@@ -1,0 +1,9 @@
+{
+  "name": "loongforge",
+  "description": "LoongForge Claude Code plugin for model adaptation workflows and related development skills.",
+  "version": "0.1.0",
+  "author": {
+    "name": "LoongForge Team"
+  },
+  "license": "UNLICENSED"
+}

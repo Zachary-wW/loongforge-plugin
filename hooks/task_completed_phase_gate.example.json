@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "TaskCompleted": [
+      {
+        "matcher": "Phase *",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "loongforge-phase-gate --run-dir \"$LOONGFORGE_ADAPT_RUN_DIR\" --phase \"$LOONGFORGE_ADAPT_PHASE\""
+          }
+        ]
+      }
+    ]
+  },
+  "notes": [
+    "Example only; not enabled by default.",
+    "Set LOONGFORGE_ADAPT_RUN_DIR and LOONGFORGE_ADAPT_PHASE from your local task naming/hook adapter before using this example.",
+    "The hook only gates validator artifacts; phase agents still run the validators and write phaseN_output.yml."
+  ]
+}

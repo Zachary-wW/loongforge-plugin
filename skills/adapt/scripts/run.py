@@ -1,0 +1,376 @@
+#!/usr/bin/env python3
+"""
+LoongForge Model Adaptation Runner.
+
+Responsibilities: Initialize run_dir / write run_inputs.yml / load existing state /
+      print next-step operation hints.
+This runner does not execute Phase agents. Actual phase execution is driven by the Agent via the /loongforge:adapt plugin skill.
+
+Usage:
+  loongforge-adapt <hf_path> [--model-name <name>] [--run-dir <dir>]
+  loongforge-adapt --resume <run_dir>
+
+Optional configuration parameters:
+  --hf-modeling-path <path>    HF network implementation path
+  --omni-path <path>           LoongForge code root directory
+  --megatron-path <path>       Megatron-LM code root directory
+  --gpu-execution-mode <mode>  GPU execution mode: local_gpu (default) | k8s
+  --enable-slice-ckpt <bool>   Whether to slice Checkpoint: true | false (default)
+  --k8s-yaml-path <path>       K8s job YAML configuration file path
+  --k8s-launch-cmd <cmd>       K8s job launch command
+  --wip-code-paths <paths>    WIP reference implementation paths (path1|type1,path2|type2)
+"""
+from __future__ import annotations
+
+import argparse
+import datetime
+import json
+from pathlib import Path
+
+import yaml
+
+
+# -- run_inputs.yml schema ---------------------------------------------------
+
+def _build_run_inputs(
+    hf_ckpt_path: str,
+    model_name: str,
+    hf_modeling_path: str = "",
+    hf_transformers_path: str = "",
+    omni_path: str = "",
+    megatron_path: str = "",
+    gpu_execution_mode: str = "local_gpu",
+    enable_slice_ckpt: str = "false",
+    k8s_yaml_path: str = "",
+    k8s_launch_cmd: str = "",
+    wip_code_paths: str = "",
+) -> dict:
+    """Build the run_inputs.yml dict from collected parameters."""
+    return {
+        "source": {
+            "hf_ckpt_path": hf_ckpt_path,
+        },
+        "paths": {
+            "hf_modeling_path": hf_modeling_path,
+            "hf_transformers_path": hf_transformers_path,
+            "omni_path": omni_path,
+            "megatron_path": megatron_path,
+        },
+        "options": {
+            "model_name": model_name,
+            "gpu_execution_mode": gpu_execution_mode,
+            "enable_slice_ckpt": enable_slice_ckpt,
+            "k8s_yaml_path": k8s_yaml_path,
+            "k8s_launch_cmd": k8s_launch_cmd,
+            "wip_code_paths": wip_code_paths,
+        },
+    }
+
+
+def save_run_inputs(run_dir: str, inputs: dict) -> None:
+    """Write run_inputs.yml to run_dir."""
+    path = Path(run_dir) / "run_inputs.yml"
+    path.write_text(yaml.dump(inputs, default_flow_style=False, allow_unicode=True, sort_keys=False))
+
+
+def load_run_inputs(run_dir: str) -> dict:
+    """Load run_inputs.yml from run_dir."""
+    path = Path(run_dir) / "run_inputs.yml"
+    if not path.exists():
+        raise FileNotFoundError(f"run_inputs.yml not found in {run_dir}")
+    return yaml.safe_load(path.read_text())
+
+
+# -- Legacy run_state.json (backward compat during migration) ----------------
+
+def _inputs_to_legacy_state(run_dir: str, inputs: dict, current_state: str = "INIT", phases: dict | None = None) -> dict:
+    """Convert run_inputs dict to legacy run_state.json format."""
+    wip_raw = inputs.get("options", {}).get("wip_code_paths", "")
+    return {
+        "hf_path": inputs.get("source", {}).get("hf_ckpt_path", ""),
+        "model_name": inputs.get("options", {}).get("model_name", ""),
+        "run_dir": run_dir,
+        "version": "2.0",
+        "current_state": current_state,
+        "model_type": "llm",
+        "hf_modeling_path": inputs.get("paths", {}).get("hf_modeling_path", ""),
+        "omni_path": inputs.get("paths", {}).get("omni_path", ""),
+        "megatron_path": inputs.get("paths", {}).get("megatron_path", ""),
+        "gpu_execution_mode": inputs.get("options", {}).get("gpu_execution_mode", "local_gpu"),
+        "enable_slice_ckpt": inputs.get("options", {}).get("enable_slice_ckpt", "false"),
+        "k8s_yaml_path": inputs.get("options", {}).get("k8s_yaml_path", ""),
+        "k8s_launch_cmd": inputs.get("options", {}).get("k8s_launch_cmd", ""),
+        "wip_code_paths": wip_raw,
+        "phases": phases or {},
+    }
+
+
+def save_legacy_state(run_dir: str, inputs: dict, current_state: str = "INIT", phases: dict | None = None) -> None:
+    """Write run_state.json for backward compatibility."""
+    path = Path(run_dir) / "run_state.json"
+    state = _inputs_to_legacy_state(run_dir, inputs, current_state, phases)
+    path.write_text(json.dumps(state, indent=2, ensure_ascii=False))
+
+
+def load_legacy_state(run_dir: str) -> dict:
+    """Load legacy run_state.json."""
+    path = Path(run_dir) / "run_state.json"
+    if not path.exists():
+        raise FileNotFoundError(f"run_state.json not found in {run_dir}")
+    return json.loads(path.read_text())
+
+
+def _legacy_state_to_inputs(state: dict) -> dict:
+    """Convert legacy run_state.json fields into run_inputs.yml schema."""
+    return _build_run_inputs(
+        hf_ckpt_path=state.get("hf_path", ""),
+        model_name=state.get("model_name", ""),
+        hf_modeling_path=state.get("hf_modeling_path", ""),
+        hf_transformers_path=state.get("hf_transformers_path", ""),
+        omni_path=state.get("omni_path", ""),
+        megatron_path=state.get("megatron_path", ""),
+        gpu_execution_mode=state.get("gpu_execution_mode", "local_gpu"),
+        enable_slice_ckpt=state.get("enable_slice_ckpt", "false"),
+        k8s_yaml_path=state.get("k8s_yaml_path", ""),
+        k8s_launch_cmd=state.get("k8s_launch_cmd", ""),
+        wip_code_paths=state.get("wip_code_paths", ""),
+    )
+
+
+def load_or_backfill_run_inputs(run_dir: str) -> dict:
+    """Load run_inputs.yml, or backfill it from legacy run_state.json when needed."""
+    try:
+        return load_run_inputs(run_dir)
+    except FileNotFoundError:
+        legacy = load_legacy_state(run_dir)
+        inputs = _legacy_state_to_inputs(legacy)
+        save_run_inputs(run_dir, inputs)
+        return inputs
+
+
+# -- Phase output helpers ----------------------------------------------------
+
+def phase_output_path(run_dir: str, phase_num: int) -> Path:
+    """Return the authoritative phase handoff path."""
+    return Path(run_dir) / "phases" / f"phase{phase_num}_output.yml"
+
+
+def legacy_phase_output_path(run_dir: str, phase_num: int) -> Path:
+    """Return the legacy phase-local output path."""
+    return Path(run_dir) / "phases" / f"phase{phase_num}" / "output.yml"
+
+
+def get_phase_status(run_dir: str, phase_num: int) -> str | None:
+    """Read phase status from the authoritative handoff, falling back to legacy output.yml."""
+    path = phase_output_path(run_dir, phase_num)
+    if not path.exists():
+        path = legacy_phase_output_path(run_dir, phase_num)
+    if not path.exists():
+        return None
+    data = yaml.safe_load(path.read_text())
+    return data.get("status")
+
+
+def clear_phase_output(run_dir: str, phase_num: int) -> None:
+    """Remove phase handoff files and attempts journal for the given phase."""
+    for output_yml in (phase_output_path(run_dir, phase_num), legacy_phase_output_path(run_dir, phase_num)):
+        if output_yml.exists():
+            output_yml.unlink()
+    attempts = Path(run_dir) / "phases" / f"phase{phase_num}" / "attempts.jsonl"
+    if attempts.exists():
+        attempts.unlink()
+
+
+# -- Init / Resume -----------------------------------------------------------
+
+def init_run_dir(
+    hf_ckpt_path: str,
+    model_name: str,
+    run_dir: str,
+    **cli_kwargs,
+) -> dict:
+    """Create run_dir, write run_inputs.yml and legacy run_state.json, return inputs dict."""
+    Path(run_dir).mkdir(parents=True, exist_ok=True)
+    phases_dir = Path(run_dir) / "phases"
+    for i in range(6):
+        phase_dir = phases_dir / f"phase{i}"
+        phase_dir.mkdir(parents=True, exist_ok=True)
+        # Create logs subdirectory for Phase 1-4
+        if 1 <= i <= 4:
+            (phase_dir / "logs").mkdir(parents=True, exist_ok=True)
+
+    inputs = _build_run_inputs(
+        hf_ckpt_path=hf_ckpt_path,
+        model_name=model_name,
+        hf_modeling_path=cli_kwargs.get("hf_modeling_path", ""),
+        hf_transformers_path=cli_kwargs.get("hf_transformers_path", ""),
+        omni_path=cli_kwargs.get("omni_path", ""),
+        megatron_path=cli_kwargs.get("megatron_path", ""),
+        gpu_execution_mode=cli_kwargs.get("gpu_execution_mode", "local_gpu"),
+        enable_slice_ckpt=cli_kwargs.get("enable_slice_ckpt", "false"),
+        k8s_yaml_path=cli_kwargs.get("k8s_yaml_path", ""),
+        k8s_launch_cmd=cli_kwargs.get("k8s_launch_cmd", ""),
+        wip_code_paths=cli_kwargs.get("wip_code_paths", ""),
+    )
+    save_run_inputs(run_dir, inputs)
+    save_legacy_state(run_dir, inputs, current_state="INIT")
+    return inputs
+
+
+def resume_run_dir(run_dir: str, from_phase: int | None = None) -> dict:
+    """Load run_inputs.yml, optionally backfill from legacy state, and clear phase outputs from from_phase onward."""
+    inputs = load_or_backfill_run_inputs(run_dir)
+    if from_phase is not None:
+        for phase_num in range(from_phase, 6):
+            clear_phase_output(run_dir, phase_num)
+        # Also clear legacy phase keys when legacy state exists. Missing
+        # run_state.json is allowed because run_inputs.yml is authoritative.
+        try:
+            legacy = load_legacy_state(run_dir)
+        except FileNotFoundError:
+            save_legacy_state(run_dir, inputs, current_state=f"PHASE{from_phase}_RUNNING")
+        else:
+            for phase_num in range(from_phase, 6):
+                legacy.get("phases", {}).pop(f"phase{phase_num}", None)
+            legacy["current_state"] = f"PHASE{from_phase}_RUNNING"
+            Path(run_dir, "run_state.json").write_text(
+                json.dumps(legacy, indent=2, ensure_ascii=False)
+            )
+    return inputs
+
+
+# -- Display -----------------------------------------------------------------
+
+_SEP = "-" * 50
+
+
+def print_context(run_dir: str, inputs: dict) -> None:
+    """Print run context and next-step hint."""
+    src = inputs.get("source", {})
+    paths = inputs.get("paths", {})
+    opts = inputs.get("options", {})
+
+    wip_display = "(none)"
+    wip_raw = opts.get("wip_code_paths", "")
+    if wip_raw:
+        try:
+            wip_entries = json.loads(wip_raw)
+            wip_display = ", ".join(f"{e['path']} ({e['type']})" for e in wip_entries)
+        except (json.JSONDecodeError, KeyError):
+            wip_display = wip_raw
+
+    print(
+        f"\n{_SEP}\n"
+        f"Run dir:        {run_dir}\n"
+        f"HF ckpt path:   {src.get('hf_ckpt_path', '')}\n"
+        f"Model:          {opts.get('model_name', '')}\n"
+        f"\nStartup Configuration:\n"
+        f"  HF Network Path:      {paths.get('hf_modeling_path', '') or '(not set)'}\n"
+        f"  HF Transformers Path: {paths.get('hf_transformers_path', '') or '(not set)'}\n"
+        f"  Omni Path:            {paths.get('omni_path', '') or '(not set)'}\n"
+        f"  Megatron Path:        {paths.get('megatron_path', '') or '(not set)'}\n"
+        f"  GPU Execution Mode:   {opts.get('gpu_execution_mode', 'local_gpu')}\n"
+        f"  Slice Ckpt:           {opts.get('enable_slice_ckpt', 'false')}\n"
+        f"  K8s YAML:             {opts.get('k8s_yaml_path', '') or '(not set)'}\n"
+        f"  K8s Command:          {opts.get('k8s_launch_cmd', '') or '(not set)'}\n"
+        f"  WIP Code:             {wip_display}\n"
+        f"\nNext step: continue with /loongforge:adapt.\n"
+        f"Legacy note: run_state.json is written for backward compatibility; run_inputs.yml and phase outputs are authoritative.\n"
+        f"{_SEP}\n"
+    )
+
+
+# -- CLI ---------------------------------------------------------------------
+
+def main(argv=None):
+    """main"""
+    parser = argparse.ArgumentParser(description="LoongForge Model Adaptation Runner")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("hf_path", nargs="?", help="HF model local path")
+    group.add_argument("--resume", metavar="RUN_DIR", help="Load state from specified run_dir")
+    parser.add_argument("--model-name", default=None)
+    parser.add_argument("--run-dir", default=None)
+    # Pre-startup information collection parameters
+    parser.add_argument("--hf-modeling-path", default=None, help="HF network implementation path (modeling_*.py)")
+    parser.add_argument("--hf-transformers-path", default=None, help="Local Transformers source tree path")
+    parser.add_argument("--omni-path", default=None, help="LoongForge code root directory")
+    parser.add_argument("--megatron-path", default=None, help="Megatron-LM code root directory")
+    parser.add_argument(
+        "--gpu-execution-mode",
+        choices=["local_gpu", "k8s"],
+        default="local_gpu",
+        help="GPU execution mode: local_gpu (local GPU) or k8s (Kubernetes job)",
+    )
+    parser.add_argument(
+        "--enable-slice-ckpt",
+        choices=["true", "false"],
+        default="false",
+        help="Whether to slice Checkpoint to accelerate iteration (default false)",
+    )
+    parser.add_argument("--k8s-yaml-path", default=None, help="K8s job YAML configuration file path")
+    parser.add_argument("--k8s-launch-cmd", default=None, help="K8s job launch command")
+    parser.add_argument(
+        "--wip-code-paths",
+        default=None,
+        help="WIP reference implementation paths, format: path1|type1,path2|type2 (type: megatron|hf_transformers|omni|other)",
+    )
+    parser.add_argument(
+        "--from-phase",
+        type=str,
+        choices=["0", "1", "2", "3", "4", "5"],
+        default=None,
+        metavar="N",
+        help="Used with --resume, restart from the specified phase (0/1/2/3/4/5)",
+    )
+    args = parser.parse_args(argv)
+
+    if args.resume:
+        from_phase = int(args.from_phase) if args.from_phase is not None else None
+        inputs = resume_run_dir(args.resume, from_phase=from_phase)
+        print(f"[Resume] State loaded: {args.resume}")
+        if from_phase is not None:
+            print(f"[Reset] Starting from Phase {from_phase}; cleared stale phase results from Phase {from_phase} onward")
+        print_context(args.resume, inputs)
+    else:
+        if not args.hf_path:
+            parser.error("hf_path or --resume must be provided")
+        run_dir = (
+            args.run_dir
+            or f"adaptation_run_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+        model_name = args.model_name or Path(args.hf_path).name
+
+        # Parse wip_code_paths
+        wip_code_paths = ""
+        if args.wip_code_paths:
+            entries = []
+            for entry in args.wip_code_paths.split(","):
+                parts = entry.split("|", 1)
+                if len(parts) != 2 or not parts[0] or not parts[1]:
+                    parser.error(
+                        f"Invalid --wip-code-paths entry: '{entry}', "
+                        f"format should be path|type (e.g. /home/user/Megatron|megatron)"
+                    )
+                entries.append({"path": parts[0], "type": parts[1]})
+            wip_code_paths = json.dumps(entries)
+
+        inputs = init_run_dir(
+            hf_ckpt_path=args.hf_path,
+            model_name=model_name,
+            run_dir=run_dir,
+            hf_modeling_path=args.hf_modeling_path or "",
+            hf_transformers_path=args.hf_transformers_path or "",
+            omni_path=args.omni_path or "",
+            megatron_path=args.megatron_path or "",
+            gpu_execution_mode=args.gpu_execution_mode,
+            enable_slice_ckpt=args.enable_slice_ckpt,
+            k8s_yaml_path=args.k8s_yaml_path or "",
+            k8s_launch_cmd=args.k8s_launch_cmd or "",
+            wip_code_paths=wip_code_paths,
+        )
+        print(f"[Initialized] run_dir created: {run_dir}")
+        print_context(run_dir, inputs)
+
+
+if __name__ == "__main__":
+    main()

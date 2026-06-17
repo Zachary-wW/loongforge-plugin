@@ -1,0 +1,36 @@
+family: <family>
+model_category: <model_category_label>   # Uppercase, e.g. VLM
+
+hf_reference:
+  path: <hf_path>
+  model_type: <read model_type field from hf_path/config.json>
+
+structural_tags:
+  has_mla: <true|false|null>          # null -> # TODO: requires manual confirmation
+  has_moe: <true|false>
+  has_qk_layernorm: <true|false>
+  has_linear_attn: <true|false>
+  has_mtp: <true|false>
+  is_mha: <true|false>
+  vocab_size_tier: "<small|standard|large>"
+
+code_paths:
+  config: <path or # Phase 1 not complete, to be supplemented>
+  layer_spec: <path>
+  model: <path>
+  init: <path>
+  encoder: <loongforge/models/encoder/<name>/ or # Phase 1 not complete, to be supplemented>
+
+traps:
+  - field: <field1>
+    detail: >
+      <detail1>
+  # If traps is empty, write: []
+
+omni_reference:
+  model_yaml: <path or # Phase 2 not complete, to be supplemented>
+  # VLM convert three stages; when Phase 2 is incomplete, each line uses the Phase 2 placeholder:
+  #   ViT:       <image_encoder ckpt_convert yaml path>
+  #   projector: <image_projector ckpt_convert yaml path>
+  #   LLM:       <llm family ckpt_convert yaml path>
+  example_script: <path>

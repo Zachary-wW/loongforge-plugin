@@ -1,0 +1,65 @@
+family: qwen3_5
+model_category: LLM
+
+# qwen3_5 supports both Dense (model_type=qwen3_5) and MoE (model_type=qwen3_5_moe)
+# Both share the same Omni implementation; Dense/MoE is distinguished by convert_yaml
+# Note: model_type belongs to VisionLanguageModelFamilies.QWEN3_5 (not LanguageModelFamilies)
+
+hf_reference:
+  path: /Users/weizhihao/workspace/agent_skills/harness/hf_models/vlm/Qwen3.5-35B-A3B
+  model_type: qwen3_5   # Dense variant; MoE variant is qwen3_5_moe
+
+structural_tags:
+  has_mla: false          # No q_lora_rank / kv_lora_rank fields
+  has_moe: true           # Supports MoE variant (num_experts field); Dense has num_experts=null
+  has_qk_layernorm: true  # Qwen3.5 enables QK Norm (q_norm / k_norm)
+  has_linear_attn: true   # Hybrid architecture: GatedDeltaNet linear attention layers (controlled by full_attention_interval)
+  has_mtp: false          # No MTP layers (only qwen3_next has MTP)
+  is_mha: false           # GQA (num_key_value_heads field exists)
+  vocab_size_tier: large  # vocab_size=248320 >= 200k (expanded vocabulary)
+
+code_paths:
+  config:     loongforge/models/foundation/qwen3_5/qwen3_5_config.py
+  layer_spec: loongforge/models/foundation/qwen3_5/qwen3_5_layer_spec.py
+  model:      loongforge/models/foundation/qwen3_5/qwen3_5_model.py
+  init:       loongforge/models/foundation/qwen3_5/__init__.py
+
+traps:
+  - field: rotary_percent
+    detail: >
+      Qwen3.5 only applies RoPE to 25% of dimensions (rotary_percent=0.25); when kv_channels=256,
+      the actual RoPE dimension is 64. Standard RotaryEmbedding rotates all dimensions.
+      Correct approach: Must use Qwen35RotaryEmbedding (inherited from MultimodalRotaryEmbedding),
+      cannot reuse qwen2/qwen3's RotaryEmbedding implementation.
+
+  - field: model_type enum affiliation
+    detail: >
+      Qwen35Config's model_type = VisionLanguageModelFamilies.QWEN3_5,
+      not LanguageModelFamilies. Although Qwen3.5 can be used as a pure LLM,
+      its enum belongs to VLM families; import from VisionLanguageModelFamilies is required.
+      Correct approach: from loongforge.utils.constants import VisionLanguageModelFamilies.
+
+  - field: kv_channels
+    detail: >
+      Qwen3.5's head_dim=256 (larger than Qwen3's 128); kv_channels: 256 must be explicitly set in config.
+      Using Qwen3's kv_channels: 128 will cause RoPE dimension and weight shape errors.
+
+  - field: full_attention_interval / hybrid layer order
+    detail: >
+      layer_spec determines layer type by full_attention_interval=4:
+      layers where (i+1) % full_attention_interval == 0 are Full Attention; the rest are Linear Attention (GatedDeltaNet).
+      Note that indexing starts from 0: layers 1, 2, 3 are Linear, layer 4 is Full Attention, and so on.
+      If full_attention_interval value does not match HF during adaptation, the layer type order will be incorrect.
+
+  - field: Qwen3NextRMSNorm (zero-centered RMSNorm)
+    detail: >
+      Qwen3.5 reuses qwen3_next's Qwen3NextRMSNorm, whose weights are initialized to zeros (zero-centered),
+      computed as (1+weight)*norm(x), unlike standard RMSNorm (weights initialized to ones).
+      The convert script does not need +1/-1 offset; weights are mapped directly,
+      but loading standard RMSNorm weights will cause errors.
+
+omni_reference:
+  model_yaml:         configs/models/qwen3.5/qwen3_5_2b.yaml
+  convert_yaml_dense: configs/models/qwen3.5/ckpt_convert/qwen3_5_dense_convert.yaml
+  convert_yaml_moe:   configs/models/qwen3.5/ckpt_convert/qwen3_5_moe_convert.yaml
+  example_script:     examples/qwen3.5/pretrain/pretrain_qwen3_5_2b.sh

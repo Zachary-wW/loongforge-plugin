@@ -1,0 +1,58 @@
+family: qwen2_5_vl
+model_category: VLM
+
+# VLM architecture: Qwen2.5 LLM backbone + Qwen2VisionTransformer encoder
+# Qwen2-VL (model_type=qwen2_vl) and Qwen2.5-VL share the same encoder implementation
+# Core features: 3D mRoPE (T,H,W 3D positional encoding), ViT dynamic resolution
+
+hf_reference:
+  path: /Users/weizhihao/workspace/agent_skills/harness/hf_models/transformers/src/transformers/models/qwen2_5_vl
+  model_type: qwen2_5_vl
+
+structural_tags:
+  has_mla: false
+  has_moe: false
+  has_qk_layernorm: false     # Qwen2.5 LLM backbone qk_layernorm default false (confirmed from qwen2/qwen_layer_spec.py: controlled by config.qk_layernorm; ViT layer spec does not set qk_layernorm)
+  has_linear_attn: false
+  has_mtp: false
+  is_mha: false               # GQA (Qwen2.5 LLM backbone, num_query_groups < num_attention_heads)
+  vocab_size_tier: standard
+
+code_paths:
+  # LLM backbone (shared by Qwen2/Qwen2.5)
+  config:     loongforge/models/foundation/qwen2/qwen_config.py
+  layer_spec: loongforge/models/foundation/qwen2/qwen_layer_spec.py
+  model:      loongforge/models/foundation/qwen2/qwen_model.py
+  init:       loongforge/models/foundation/qwen2/__init__.py
+  # Vision Encoder (shared by Qwen2-VL and Qwen2.5-VL)
+  encoder:    loongforge/models/encoder/qwen2_vl_vision_models/
+
+traps:
+  - field: apply_rotary_fn
+    detail: "VLM's LLM backbone layer_spec must use apply_mrope (3D T/H/W positional encoding, defined in qwen2/qwen_layer_spec.py), not standard apply_rotary_pos_emb. ViT layers use independent apply_rotary_pos_emb_vision (defined in qwen2_vl_layer_spec.py). Misusing standard RoPE causes position_ids shape to be misinterpreted from [3,B,S] to [B,S], resulting in disordered vision token positional encoding and training loss not decreasing. Correct approach: VLM model YAML sets model_spec to get_qwen2_vl_layer_with_te_spec (LLM side) and get_qwen2_vl_vision_model_layer_with_te_spec (ViT side)."
+  - field: attn_mask_type
+    detail: "ViT layer spec (get_qwen2_vl_vision_model_layer_with_te_spec) uses AttnMaskType.no_mask (bidirectional attention), while LLM layer spec uses AttnMaskType.causal. The two specs are not interchangeable. Mistakenly applying LLM causal spec to ViT causes attention output degradation (upper triangle masked), completely breaking image understanding."
+  - field: rotary_emb_func
+    detail: "VLM's model YAML (e.g., qwen2_5_vl_7b.yaml) must override rotary_emb_func: Qwen2VLRotaryEmbedding in the foundation section, otherwise the LLM backbone uses standard RotaryEmbedding, which is incompatible with position_ids [3,B,S] format, causing forward shape errors. LLM-only YAML uses default RotaryEmbedding and does not need this field set."
+  - field: normalization (ViT)
+    detail: "Qwen2-VL's ViT uses LayerNorm (Qwen2VisionModelConfig.normalization='LayerNorm'), while Qwen2.5-VL's ViT uses RMSNorm (Qwen2VisionRMSNormConfig.normalization='RMSNorm', model_type=qwen2_5_vit_rmsnorm). These correspond to different config classes and must not be mixed when adapting from HF config."
+  - field: spatial_merge_size (ViT convert)
+    detail: >
+      ViT convert.yaml needs spatial_merge_size configured, which affects the weight shape of the patch merger layer.
+      If missing, the merger layer key is absent or shape mismatches during roundtrip.
+      Correct approach: Explicitly set spatial_merge_size: 2 (or corresponding value) in qwen2_5_vit_convert.yaml's args.
+
+  - field: temporal_patch_size (video support)
+    detail: >
+      During video inference, temporal_patch_size controls the number of adjacent frames merged (default 2).
+      If temporal_patch_size in LoongForge config does not match HF config,
+      video token count and mRoPE T-dimension encoding will be misaligned, causing abnormal video understanding.
+      Correct approach: Read directly from HF vision_config.temporal_patch_size; do not use hardcoded values.
+
+omni_reference:
+  model_yaml:     configs/models/qwen2.5vl/qwen2_5_vl_7b.yaml
+  # VLM convert three stages (no unified convert yaml):
+  #   ViT:       configs/models/image_encoder/ckpt_convert/qwen2_5_vit_convert.yaml
+  #   projector: configs/models/image_projector/ckpt_convert/qwen_mlp_adapter_convert.yaml
+  #   LLM:       configs/models/qwen2.5/ckpt_convert/qwen2_5_convert.yaml (model YAML overrides via convert_file field)
+  example_script: examples/qwen2.5_vl/pretrain/pretrain_qwen2_5_vl_7b.sh

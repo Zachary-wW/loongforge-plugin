@@ -1,0 +1,57 @@
+{
+  "status": "passed",
+  "performed": true,
+  "reason": "success",
+  "input": {
+    "hf_ckpt_path": "/data/models/Foo",
+    "model_spec_path": "phases/phase0/model_spec.yaml"
+  },
+  "output": {
+    "hf_ckpt_path": "/data/runs/foo/phases/phase0/sliced_hf",
+    "config_path": "/data/runs/foo/phases/phase0/sliced_hf/config.json"
+  },
+  "layer_slicing": {
+    "original_num_layers": 80,
+    "sliced_num_layers": 4,
+    "kept_layer_indices": [0, 1, 78, 79],
+    "index_remap": {
+      "0": 0,
+      "1": 1,
+      "78": 2,
+      "79": 3
+    }
+  },
+  "preserved_modules": {
+    "embedding": true,
+    "lm_head": true,
+    "norm": true,
+    "mtp": true,
+    "vision_encoder": true,
+    "projector": true
+  },
+  "weight_files": {
+    "format": "safetensors",
+    "original_key_count": 1234,
+    "sliced_key_count": 456,
+    "index_file": "model.safetensors.index.json"
+  },
+  "config_changes": {
+    "num_hidden_layers": {
+      "old": 80,
+      "new": 4
+    },
+    "num_layers": {
+      "old": 80,
+      "new": 4
+    },
+    "mtp": "preserved"
+  },
+  "validation": {
+    "output_path_exists": true,
+    "config_exists": true,
+    "weight_index_exists": true,
+    "kept_layers_exist": true,
+    "removed_middle_layers_absent": true,
+    "mtp_keys_preserved": true
+  }
+}

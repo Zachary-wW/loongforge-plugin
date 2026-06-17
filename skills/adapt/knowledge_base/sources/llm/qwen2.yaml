@@ -1,0 +1,63 @@
+family: qwen2
+model_category: LLM
+
+# Note: model_type=qwen (Qwen1/Qwen1.5) and model_type=qwen2 share this Omni implementation
+# Qwen1 local HF code: hf_models/llm/Qwen-14B/modeling_qwen.py
+# Qwen1 and Qwen2 have the same architecture; the main difference is Qwen1 lacks the tie_word_embeddings config field
+
+hf_reference:
+  path: /Users/weizhihao/workspace/agent_skills/harness/hf_models/llm/Qwen-14B
+  model_type: qwen2   # HF config.json model_type field (Qwen1 is qwen)
+
+structural_tags:
+  has_mla: false          # No q_lora_rank / kv_lora_rank fields
+  has_moe: false          # No num_experts / n_routed_experts fields (Qwen2 base version)
+  has_qk_layernorm: false # Qwen2 has no QK Norm; only introduced in Qwen3
+  has_linear_attn: false  # No GatedDeltaNet or other Linear Attention layers
+  has_mtp: false          # No MTP layers
+  is_mha: false           # GQA (num_key_value_heads field exists); Qwen1 is MHA (field absent)
+  vocab_size_tier: standard   # vocab_size=152064 < 200k
+
+code_paths:
+  config:     loongforge/models/foundation/qwen2/qwen_config.py
+  layer_spec: loongforge/models/foundation/qwen2/qwen_layer_spec.py
+  model:      loongforge/models/foundation/qwen2/qwen_model.py
+  init:       loongforge/models/foundation/qwen2/__init__.py
+
+traps:
+  - field: untie_embeddings_and_output_weights
+    detail: >
+      The HF field is tie_word_embeddings (default false), and the LoongForge field is
+      untie_embeddings_and_output_weights with opposite semantics, requiring negation.
+      Correct approach: untie_embeddings_and_output_weights = not hf_config.tie_word_embeddings.
+
+  - field: add_qkv_bias
+    detail: >
+      Qwen2's QKV projections include bias (q_proj/k_proj/v_proj all have bias in HF),
+      and the LoongForge default value is True (unlike Qwen3 which is false).
+      convert.yaml must confirm extra:true to cover QKV bias weights, otherwise logit misalignment occurs.
+
+  - field: num_key_value_heads (Qwen1 scenario)
+    detail: >
+      Qwen1's config.json lacks the num_key_value_heads field (pure MHA),
+      and analyze.py will raise KeyError if it reads this field directly.
+      Correct approach: Fallback to using num_attention_heads as num_query_groups, and disable group_query_attention.
+
+  - field: kv_channels
+    detail: >
+      Qwen2 has no explicit head_dim field; kv_channels is auto-calculated as hidden_size // num_attention_heads.
+      config.yaml can leave this unset (null), and the framework will auto-derive it.
+      However, writing an incorrect value manually will cause RoPE dimension errors.
+
+  - field: Qwen1 c_attn QKV projection
+    detail: >
+      Qwen1's QKV projection uses c_attn (single matrix, shape [hidden, 3*proj_size], with bias),
+      which has completely different naming from Qwen2's q_proj/k_proj/v_proj (three separate matrices).
+      The QKV merge rules in convert.yaml cannot reuse qwen2's q_proj/k_proj/v_proj split logic;
+      a dedicated Qwen1 convert.yaml must be used (configs/models/qwen/ckpt_convert/qwen_convert.yaml).
+
+omni_reference:
+  model_yaml:     configs/models/qwen2/qwen2_7b.yaml
+  convert_yaml:   configs/models/qwen2/ckpt_convert/qwen2_convert.yaml
+  example_script: examples/qwen2/pretrain/pretrain_qwen2_7b.sh
+  # For Qwen1: configs/models/qwen/ckpt_convert/qwen_convert.yaml

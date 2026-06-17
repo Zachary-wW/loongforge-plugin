@@ -1,0 +1,90 @@
+# Schema template for phases/phase4_output.yml.
+# Phase 4 fills this after feature matrix compatibility validation.
+
+phase: 4
+status: passed | human_needed
+summary: "Feature Compatibility Test: PASS/HUMAN_NEEDED, single switches passed X/Y, combinations passed M/N"
+attempt: 1
+
+step_gate:
+  mandatory_steps_complete: true
+steps:
+  step1:
+    status: passed
+    evidence: "Phase 3 baseline loaded"
+  step2:
+    status: passed
+    evidence: "feature_matrix.yaml"
+  step3:
+    status: passed
+    evidence: "single switch verification report"
+  step4:
+    status: passed
+    evidence: "combined switch verification report"
+  step5:
+    status: passed
+    evidence: "failure diagnosis/retry summary or no-failure note"
+  step6:
+    status: passed
+    evidence: "feature_compat_report.json"
+  step7:
+    status: passed
+    evidence: "final feature-compat decision"
+
+source:
+  hf_ckpt_path: "<phase0_output.source.hf_ckpt_path>"
+  mcore_ckpt: "<phase2_output.artifacts.output_ckpt>"
+  baseline_verify_report: "<phase3_output.artifacts.verify_report_path>"
+
+model:
+  name: "<run_inputs.options.model_name>"
+  type: "<phase0_output.model.model_type>"
+  family: "<phase0_output.model.candidate_family>"
+
+artifacts:
+  feature_compat_report_path: "<run_dir>/phases/phase4/feature_compat_report.json"
+  feature_matrix_path: "<run_dir>/phases/phase4/feature_matrix.yaml"
+  switch_scripts_dir: "<run_dir>/phases/phase4/"
+
+checks:
+  applicable_runtime_passed: true
+  non_runtime_rows_justified: true
+  required_combinations_passed: true
+
+single_switches:
+  - category: parallel_strategy
+    switch: TP
+    status: passed | failed | skipped | human_needed
+    support_status: supported | unsupported | skipped | human_needed
+    preflight_status: passed | skipped | human_needed | failed
+    preflight_checks: []
+    preflight_skip_reason: null | "<preflight skip/escalation reason>"
+    script: "<run_dir>/phases/phase4/tp/run.sh"
+    reason: null | "<skip/failure reason>"
+
+combinations:
+  - combo: "TP+PP"
+    status: passed | failed | skipped
+    script: "<run_dir>/phases/phase4/combinations/tp_pp/run.sh"
+
+human_needed:
+  - switch: "<name>"
+    reason: "..."
+    failure_gate: "<gate>"
+    fallback_phase: null | "phase1" | "phase2" | "phase3"
+    reproduce: "bash <run_dir>/phases/phase4/<switch>/run.sh"
+
+validator:
+  name: feature-compat
+  status: passed
+  attempt: 1
+  failure_gate: null
+  metrics:
+    applicable_runtime_passed: true
+    non_runtime_rows_justified: true
+    required_combinations_passed: true
+  artifacts:
+    - "<run_dir>/phases/phase4/feature_compat_report.json"
+    - "<run_dir>/phases/phase4/feature_matrix.yaml"
+  diagnosis: null
+  fallback_phase: null

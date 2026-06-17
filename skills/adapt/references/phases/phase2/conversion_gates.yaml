@@ -1,0 +1,173 @@
+# Phase 2 authoritative conversion validation gates.
+# Phase 2 Step 5 reads this file and executes gates in order.
+
+version: 1
+validator: phase2-conversion
+summary: >
+  HF Roundtrip Test, offline HF->mcore conversion, production conversion gate,
+  and offline roundtrip verification. Phase 2 can pass only when every required
+  gate passes in the latest iteration.
+
+ordering_rules:
+  - id: step5a_before_step5b
+    rule: >
+      HF Roundtrip Test must execute before offline conversion because it verifies
+      load_hf_checkpoint_online -> save_hf_checkpoint_online through the real
+      Megatron model and can expose network construction and convert YAML issues.
+  - id: rebuild_after_name_map_change
+    rule: >
+      After any name_map or converter change, rebuild the mcore checkpoint by
+      re-running Step 5b before re-running offline roundtrip verification.
+
+common:
+  attempt_limit: 30
+  log_dir: phases/phase2/logs
+  diagnosis_reference: knowledge_base/recipes/convert_debug.md
+  failure_patterns_dir: knowledge_base/failure_patterns/phase2
+
+gates:
+  - id: step5a
+    name: HF Roundtrip Test
+    purpose: >
+      End-to-end verification of Network Construction code plus online HF
+      weight load/save through the real target model.
+    required_artifacts:
+      - tools/dist_checkpoint/test/<family>/<model>_bridge_roundtrip.sh
+      - <run_dir>/phases/phase2/hf_roundtrip_output/roundtrip_comparison.json
+    environment:
+      requires_gpu: true
+      tokenizer_path: <phase0_output.slice.hf_ckpt_path>
+      save_hf_path: <run_dir>/phases/phase2/hf_roundtrip_output
+    shell_structure:
+      entry_script: $LOONGFORGE_PATH/tools/dist_checkpoint/checkpoint/hf_roundtrip_test.py
+      tokenizer_args:
+        - --tokenizer-type HFTokenizer
+        - --hf-tokenizer-path $TOKENIZER_PATH
+      training_args:
+        - --train-iters 0
+        - --no-load-optim
+        - --no-load-rng
+        - --load $TOKENIZER_PATH
+        - --save-hf-path $SAVE_HF_PATH
+        - --save-hf=true
+      model_parallel_args: TP/PP config; VLM also considers --encoder-tensor-model-parallel-size
+    pass_conditions:
+      - roundtrip_comparison.passed is true
+      - missing_keys is empty
+      - unexpected_keys is empty
+      - shape_mismatches is empty
+      - tensor_mismatches is empty under the supported precision rule
+    repairable_causes:
+      - convert YAML name_map or args issue
+      - shell argument issue
+      - appended converter code issue
+    fallback_causes:
+      - cause: Phase 1 generated Network Construction code must change
+        status: human_needed
+        failure_gate: hf_roundtrip
+        fallback_phase: phase1
+      - cause: no GPU environment available for this gate
+        status: human_needed
+        failure_gate: hf_roundtrip_environment
+        fallback_phase: null
+    on_attempt_exhausted:
+      status: human_needed
+      failure_gate: hf_roundtrip
+      fallback_phase: null
+
+  - id: step5b
+    name: Offline conversion
+    purpose: Execute HF->mcore and mcore->HF conversion scripts.
+    substeps:
+      - id: step5b_1
+        name: HF to mcore
+        command: bash examples/<family>/checkpoint_convert/convert_<model>_hf_to_mcore.sh
+        env:
+          HF_MODEL_PATH: <phase0_output.slice.hf_ckpt_path>
+          SAVE_ROOT: <run_dir>/phases/phase2/convert_output
+        vlm_output_dirs:
+          - <run_dir>/phases/phase2/convert_output/tmp/language-mcore
+          - <run_dir>/phases/phase2/convert_output/tmp/vision-model-mcore
+          - <run_dir>/phases/phase2/convert_output/tmp/adapter-mcore
+      - id: step5b_2
+        name: mcore to HF
+        command: bash examples/<family>/checkpoint_convert/convert_<model>_mcore_to_hf.sh
+    pass_conditions:
+      - HF->mcore command exits 0
+      - mcore->HF command exits 0
+      - expected convert_output directories/files exist
+    repairable_causes:
+      - convert YAML issue
+      - shell path or argument issue
+      - appended converter code issue
+    on_attempt_exhausted:
+      status: human_needed
+      failure_gate: offline_conversion
+      fallback_phase: null
+
+  - id: step5c
+    name: Production conversion gate
+    purpose: >
+      Verify target checkpoint provenance, target-framework loadability, and
+      absence of forbidden HF-container shortcuts before tensor equality is used
+      as evidence.
+    production_gate_schema:
+      target_checkpoint_format: mcore|native_framework|hf_only
+      loaded_by_target_framework: true|false
+      mcore_artifacts_exist: true|false
+      rebuilt_hf_derived_from_mcore: true|false
+      reversible_container_detected: true|false
+      forbidden_shortcuts: []
+    required_when: conversion_contract_preflight.production_required is true
+    required_conditions:
+      - >
+        <run_dir>/phases/phase2/convert_output/tmp contains real
+        target-framework/MCore artifacts expected by LoongForge/Megatron
+        checkpoint loading, not only HF index files or opaque metadata.
+      - >
+        The Phase 1 generated model can load the produced checkpoint through the
+        normal target-framework checkpoint path, or an artifact proves the normal
+        loader was exercised.
+      - >
+        <run_dir>/phases/phase2/convert_output/rebuilt_hf is generated from the
+        target checkpoint output of Step 5b-1.
+      - >
+        Original HF weight files are not directly copied into rebuilt HF except
+        tokenizer/config/processor ancillary files.
+      - None of the forbidden shortcuts from Step 0 are detected.
+    on_failure:
+      status: human_needed
+      failure_gate: non_production_conversion
+      fallback_phase: null
+      required_artifacts:
+        - conversion logs
+        - output directory listing
+        - failed production_gate
+    note: >
+      Step 5d must not pass Phase 2 based only on HF tensor equality when this
+      production gate fails.
+
+  - id: step5d
+    name: Offline Roundtrip verification
+    purpose: Compare original/sliced HF weights against rebuilt HF weights.
+    invoke: references/phases/phase2/verify.md
+    compare:
+      left: <phase0_output.slice.hf_ckpt_path>
+      right: <run_dir>/phases/phase2/convert_output/rebuilt_hf
+    pass_conditions:
+      - no missing keys
+      - no unexpected keys
+      - no tensor shape mismatches
+      - no tensor value mismatches under the supported precision rule
+      - Step 5c production_gate passed
+    repairable_causes:
+      - name_map issue
+      - args mismatch
+      - converter logic issue allowed by protected-file policy
+    on_failure:
+      action: repair then return to Step 5b
+      record_failure_pattern: knowledge_base/failure_patterns/phase2/<model>_c<attempt>_<YYYY-MM-DD>.md
+    on_attempt_exhausted:
+      status: human_needed
+      failure_gate: offline_roundtrip
+      fallback_phase: null

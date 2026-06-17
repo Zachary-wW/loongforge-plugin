@@ -1,0 +1,94 @@
+# Schema template for phases/phase2_output.yml.
+# Phase 2 fills this after weight conversion and phase2-conversion pass.
+
+phase: 2
+status: passed
+summary: "Weight conversion completed; HF roundtrip and offline conversion verified."
+
+step_gate:
+  mandatory_steps_complete: true
+steps:
+  step0:
+    status: passed
+    evidence: "conversion contract preflight result"
+  step1:
+    status: passed
+    evidence: "weight structure and module format matching"
+  step2:
+    status: skipped
+    required: false
+    reason: "Tier 0 existing architecture path; no new converter architecture required"
+  step3:
+    status: passed
+    evidence: "generated convert YAML and shell scripts"
+  step4:
+    status: passed
+    evidence: "converter code review output"
+  step5a:
+    status: passed
+    evidence: "HF roundtrip report"
+  step5b:
+    status: passed
+    evidence: "offline conversion logs"
+  step5c:
+    status: passed
+    evidence: "production conversion gate"
+  step5d:
+    status: passed
+    evidence: "offline roundtrip verification report"
+
+source:
+  slice_hf_ckpt_path: <from phase0_output>
+  model_spec_path: <from phase0_output>
+
+model:
+  model_name: <name>
+  model_type: llm|vlm|diffusion
+  candidate_family: <family>
+
+artifacts:
+  generated_files:
+    - configs/models/<family>/ckpt_convert/<family>_convert.yaml
+    - examples/<family>/checkpoint_convert/convert_<model>_hf_to_mcore.sh
+    - tools/dist_checkpoint/test/<family>/<model>_bridge_roundtrip.sh
+  output_ckpt: phases/phase2/convert_output/tmp
+  hf_roundtrip_output: phases/phase2/hf_roundtrip_output
+
+conversion:
+  module_format_map:
+    llm.attention: "1A"
+    llm.mlp: "2A"
+  tier: 0
+  tools_modified_files: []
+  production_gate:
+    target_checkpoint_format: mcore
+    loaded_by_target_framework: true
+    mcore_artifacts_exist: true
+    rebuilt_hf_derived_from_mcore: true
+    reversible_container_detected: false
+    forbidden_shortcuts: []
+
+checks:
+  prerequisites_met: true
+  format_matching_complete: true
+  convert_files_reviewed: true
+  hf_roundtrip_passed: true
+  offline_conversion_passed: true
+  production_conversion_passed: true
+  offline_roundtrip_passed: true
+
+validator:
+  name: phase2-conversion
+  status: passed
+  attempt: 1
+  failure_gate: null
+  metrics:
+    missing_keys: 0
+    unexpected_keys: 0
+    shape_mismatches: 0
+    tensor_mismatches: 0
+  commands: []
+  logs: []
+  artifacts: []
+  diagnosis: null
+  fallback_phase: null

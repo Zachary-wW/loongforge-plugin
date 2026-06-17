@@ -1,0 +1,69 @@
+# Phase 1 Megatron architecture pre-read checklist.
+# Phase 1 Step 1.5 reads this before strategy decisions.
+
+version: 1
+purpose: >
+  Build a working mental model of how Megatron assembles components before Phase 1
+  makes final_strategy decisions. This prevents generated Omni code from becoming
+  architecturally incompatible with Megatron's spec-driven assembly.
+
+required_reference:
+  path: knowledge_base/schema/MEGATRON_COMPONENT_MAP.md
+  instruction: Read in full before Step 2c strategy decisions.
+  focus:
+    - assembly flow
+    - config system
+    - component reference map
+    - extension patterns
+
+required_megatron_sources:
+  - path: <megatron_path>/megatron/core/transformer/spec_utils.py
+    purpose: ModuleSpec — how specs define module trees
+    reading_focus:
+      - ModuleSpec class structure: module, params, submodules fields
+      - build_module() function
+  - path: <megatron_path>/megatron/core/transformer/transformer_layer.py
+    purpose: How TransformerLayer dispatches to sub-modules
+    reading_focus:
+      - TransformerLayerSubmodules slots, including hyper connections and cross-attention
+      - __init__ signature
+      - forward signature
+  - path: <megatron_path>/megatron/core/transformer/transformer_config.py
+    purpose: Config fields that control component behavior
+    reading_focus:
+      - TransformerConfig key fields for attention, MoE, MTP, and hyper-connections
+      - MLATransformerConfig MLA-specific fields
+      - field names only; skim docstrings
+
+example_layer_specs:
+  selection_rule: Choose the one closest to the candidate family.
+  choices:
+    - architecture: MLA+MoE model
+      path: loongforge/models/foundation/deepseek/deepseek_layer_spec.py
+    - architecture: GQA dense model
+      path: loongforge/models/foundation/qwen2/qwen_layer_spec.py
+    - architecture: VLM model
+      path: loongforge/models/foundation/qwen3_next/qwen3_next_layer_spec.py
+
+reading_protocol:
+  - During generic architecture pre-read, do not read implementation bodies of forward(); only signatures and class structure.
+  - Do not read utility functions or helper methods during generic pre-read.
+  - >
+    Exception: if behavior_modifications or a component delta points to behavior-only
+    differences, read only the minimal relevant forward()/helper slice needed to verify
+    that behavior.
+  - Record the exact source pointer and extracted behavior in strategy_plan.notes when the exception is used.
+  - Note which config fields control which behavior.
+  - Note which submodule slots each component exposes.
+  - Note how multiacc_modules is used.
+
+completion_questions:
+  - What submodule slots does TransformerLayerSubmodules have, including hyper connection and cross-attention slots?
+  - How does config.multi_latent_attention change which attention class is used in layer_spec?
+  - What is the difference between BaseModelConfig and BaseModelMLAConfig, and which TransformerConfig subclass does each inherit from?
+  - How does a ModuleSpec tree map to actual module instantiation via build_module()?
+  - What does config.experimental_attention_variant control, and what values does it support?
+
+completion_rule: >
+  Step 1.5 is complete only when the agent can answer every completion question
+  from memory. If not, re-read the relevant source/reference sections before Step 2.

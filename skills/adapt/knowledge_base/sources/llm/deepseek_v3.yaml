@@ -1,0 +1,124 @@
+family: deepseek_v3
+model_category: LLM
+
+# DeepSeek V3 builds on V2 by introducing MTP (Multi-Token Prediction) auxiliary heads + improved MoE load balancing
+# model_type=deepseek_v3; V3.2 is the latest variant (model_type=deepseek_v3 with sparse_attn=true)
+# V2 and V3 share the same Omni implementation (foundation/deepseek/), distinguished by config fields
+
+hf_reference:
+  path: /Users/weizhihao/workspace/agent_skills/harness/hf_models/llm/DeepSeek-V3
+  model_type: deepseek_v3
+  hub_id: deepseek-ai/DeepSeek-V3
+
+# Structural fingerprint (used by analyze.py fallback scoring when model_type matching fails)
+structural_tags:
+  has_mla: true
+  has_moe: true
+  has_qk_layernorm: false
+  has_linear_attn: false
+  has_mtp: true       # V3 has MTP (enabled when mtp_num_layers > 0)
+  is_mha: false       # MLA is not MHA
+  vocab_size_tier: "standard"
+
+code_paths:
+  config:     loongforge/models/foundation/deepseek/deepseek_config.py
+  layer_spec: loongforge/models/foundation/deepseek/deepseek_layer_spec.py
+  model:      loongforge/models/foundation/deepseek/deepseek_model.py
+  init:       loongforge/models/foundation/deepseek/__init__.py
+  # MTP logic is embedded in deepseek_layer_spec.py (end of get_deepseek_decoder_block_and_mtp_spec function),
+  # controlled by config.mtp_num_layers switch, calls megatron.core's get_gpt_mtp_block_spec.
+  # deepseek_multi_token_prediction.py does not exist; there is no standalone MTP file.
+
+traps:
+  - field: e_score_correction_bias
+    detail: >
+      V3 MoE gate uses noaux_tc routing strategy, including learnable weight e_score_correction_bias (shape: [n_routed_experts]).
+      HF key is model.layers.{i}.mlp.gate.e_score_correction_bias,
+      Omni mcore key is decoder.layers.{i}.mlp.router.e_score_correction_bias.
+      If convert_yaml's name_map lacks this mapping, the weight is silently dropped during conversion,
+      causing unbalanced expert load and logit shift during inference.
+      Correct approach: Explicitly add gate.e_score_correction_bias mapping for each layer in deepseek_v3_convert.yaml.
+
+  - field: mtp_num_layers
+    detail: >
+      mtp_num_layers default value is 0 (MTP disabled). layer_spec uses if config.mtp_num_layers is not None to check,
+      so setting it to 0 still enters the MTP branch and calls get_gpt_mtp_block_spec, but no MTP layers are actually built.
+      Phase 1/2 backbone verification must set mtp_num_layers to 0 to avoid weight shape conflicts;
+      after enabling MTP, convert.yaml needs new mtp_layers.{j}.* prefix mappings.
+      Correct approach: First pass backbone accuracy with mtp_num_layers=0, then enable MTP incrementally.
+
+  - field: first_k_dense_replace
+    detail: >
+      The first 3 layers of V3 are Dense layers (HF config first_k_dense_replace=3), corresponding to the first 3 elements
+      of moe_layer_freq being 0. If the HF first_k_dense_replace field is directly ignored and all layers are set to MoE,
+      the first 3 layers will incorrectly use MoE layer spec (containing SharedExpertMLP + MoELayer),
+      causing forward output to be inconsistent with HF reference and weight loading failure.
+      Correct approach: When generating the moe_layer_freq list, force the first first_k_dense_replace elements to 0.
+
+  - field: config_base_class
+    detail: >
+      Same as V2: DeepseekConfig inherits from BaseModelMLAConfig, not BaseModelConfig.
+      Using BaseModelConfig incorrectly, the multi_latent_attention field does not exist,
+      and layer_spec's assert config.multi_latent_attention will raise AttributeError.
+      Correct approach: from loongforge.models.common.base_model_config import BaseModelMLAConfig.
+
+  - field: moe_gate_scoring
+    detail: >
+      V3 MoE gate uses sigmoid (not softmax); each expert is independently activated without competition.
+      If reusing V2's softmax logic, expert scores within a group are normalized,
+      causing incorrect expert selection probability distribution.
+      Correct approach: Confirm V3 yaml/config has moe_router_score_function=sigmoid (or corresponding Omni field),
+      and do not mix with V2's softmax mode.
+
+  - field: q_lora_rank is None but model has Q compression
+    detail: >
+      DeepSeek-V3's HF config has q_lora_rank present (V3 has Q latent compression).
+      If manually set to None, MLASelfAttention's internal assert will fail,
+      or weight loading will error due to q_a_proj shape mismatch.
+      Correct approach: Read q_lora_rank value directly from HF config.json, do not manually override.
+
+  - field: layer_spec mistakenly using SelfAttention instead of MLASelfAttention
+    detail: >
+      DeepSeek series must use MLASelfAttention instead of standard SelfAttention.
+      Mistakenly using SelfAttention may not trigger linter errors, but forward computation KV cache shape will not match,
+      and loss will differ significantly from HF reference (typically > 10x).
+      Correct approach: Confirm the self_attention submodule type in layer_spec is MLASelfAttention.
+
+  - field: deepseek_v4_checkpoint_prefix
+    detail: >
+      DeepSeek V4 Flash checkpoint keys use reference-style prefixes such as embed, layers, head, and mtp rather than
+      HF module prefixes model.embed_tokens, model.layers, and lm_head. Slicing and conversion must read sharded
+      safetensors through model.safetensors.index.json and map these prefixes explicitly.
+
+  - field: deepseek_v4_partial_rotary_factor
+    detail: >
+      DeepSeek V4 Flash config does not expose partial_rotary_factor directly; it must be computed as
+      qk_rope_head_dim / head_dim = 0.125. Sliding layers use main RoPE while CSA/HCA compressed layers use the
+      compress RoPE parameters.
+
+  - field: deepseek_v4_eager_attention
+    detail: >
+      DeepSeek V4 Flash disables Flash/SDPA/Flex attention in the HF reference because head_dim=512, attention sinks,
+      and compressor-concatenated KV require the eager attention semantics. Adaptation must preserve sink logits and
+      compressor block-bias masking.
+
+  - field: deepseek_v4_hash_routing
+    detail: >
+      The first num_hash_layers DeepSeek V4 Flash MoE layers route by tid2eid token-id lookup while still using learned
+      scores as weights. Treating these layers as standard learned TopKRouter changes expert indices and forward loss.
+
+  - field: deepseek_v4_compressed_attention
+    detail: >
+      DeepSeek V4 Flash alternates compressed_sparse_attention and heavily_compressed_attention layers. CSA requires the
+      Lightning Indexer, overlapping two-series windows, and per-query top-k compressed-KV masks; HCA requires
+      non-overlapping window pooling and causal compressed-entry block bias.
+
+  - field: deepseek_v4_hyper_connections
+    detail: >
+      DeepSeek V4 Flash keeps hc_mult=4 residual streams and uses mHC hyper-connection parameters at attention, FFN,
+      and final head. Shape/layout mistakes may run without shape errors but amplify into large real-weight loss diff.
+
+omni_reference:
+  model_yaml:     configs/models/deepseek3/deepseek_v3.yaml
+  convert_yaml:   configs/models/deepseek3/ckpt_convert/deepseek_v3_convert.yaml
+  example_script: examples/deepseek_v3/pretrain/pretrain_deepseek_v3_group_bf16.sh

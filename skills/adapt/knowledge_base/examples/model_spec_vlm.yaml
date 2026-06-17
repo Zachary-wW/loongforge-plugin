@@ -1,0 +1,142 @@
+# model_spec.yaml complete example -- VLM (Qwen2.5-VL)
+# For Phase 0 reference, not an actual runtime artifact
+
+model_category: vlm
+candidate_family: qwen2_5_vl
+hf_reference_path: /path/to/Qwen2.5-VL-7B-Instruct-candidate
+candidate_match_reason: "architectures[0]=Qwen2_5_VLForConditionalGeneration, vision_config exists, matches qwen2_5_vl KB"
+has_chat_template: true
+
+# -- LLM backbone components (nested in text_config) ------
+components:
+  embedding:
+    diff: same
+    strategy: reuse_ref
+    hf_class: inline
+    hf_file: modeling_qwen2_5_vl.py
+    hf_line: ~1200
+    structural_tags: [untied, padding_idx]
+
+  attention:
+    diff: same
+    strategy: reuse_ref
+    hf_class: Qwen2_5_VLAttention
+    hf_file: modeling_qwen2_5_vl.py
+    hf_line: ~480
+    structural_tags: [gqa, num_query_groups=4, qk_layernorm=false, mrope_3d]
+
+  ffn:
+    diff: same
+    strategy: reuse_ref
+    hf_class: Qwen2MLP
+    hf_file: modeling_qwen2_5_vl.py
+    hf_line: ~350
+    structural_tags: [swiglu, gate_proj, up_proj, down_proj, silu]
+
+  norm:
+    diff: same
+    strategy: reuse_ref
+    hf_class: Qwen2RMSNorm
+    hf_file: modeling_qwen2_5_vl.py
+    hf_line: ~100
+    structural_tags: [rms_norm, pre_norm]
+
+  lm_head:
+    diff: same
+    strategy: reuse_ref
+    hf_class: inline
+    hf_file: modeling_qwen2_5_vl.py
+    hf_line: ~1380
+    structural_tags: [no_bias, untied]
+
+# -- VLM-specific components ------
+vlm_components:
+  vision_patch_embed:
+    diff: same
+    strategy: reuse_ref
+    hf_class: Qwen2_5_VLPatchEmbed
+    hf_file: modeling_qwen2_5_vl.py
+    hf_line: ~150
+    structural_tags: [patch_size=14, temporal_patch_size=2, in_channels=3]
+
+  vision_attention:
+    diff: same
+    strategy: reuse_ref
+    hf_class: Qwen2_5_VLVisionAttention
+    hf_file: modeling_qwen2_5_vl.py
+    hf_line: ~220
+    structural_tags: [mha, no_mask, apply_rotary_pos_emb_vision]
+
+  vision_ffn:
+    diff: same
+    strategy: reuse_ref
+    hf_class: Qwen2_5_VLMLP
+    hf_file: modeling_qwen2_5_vl.py
+    hf_line: ~280
+    structural_tags: [swiglu, vision_intermediate_size]
+
+  vision_encoder:
+    diff: same
+    strategy: reuse_ref
+    hf_class: Qwen2_5_VLVisionTransformer
+    hf_file: modeling_qwen2_5_vl.py
+    hf_line: ~310
+    structural_tags: [vit, dynamic_resolution, mrope_3d, rmsnorm_vit]
+
+  projector:
+    diff: same
+    strategy: reuse_ref
+    hf_class: Qwen2_5_VLMultiModalProjector
+    hf_file: modeling_qwen2_5_vl.py
+    hf_line: ~420
+    structural_tags: [mlp_2layer, spatial_merge_size=2]
+
+  llm_backbone:
+    diff: same
+    strategy: reuse_ref
+    hf_class: Qwen2_5_VLModel
+    hf_file: modeling_qwen2_5_vl.py
+    hf_line: ~1180
+    structural_tags: [mrope_3d, text_config_nested]
+
+  conditional_gen:
+    diff: same
+    strategy: reuse_ref
+    hf_class: Qwen2_5_VLForConditionalGeneration
+    hf_file: modeling_qwen2_5_vl.py
+    hf_line: ~1350
+    structural_tags: [image_token_id, video_token_id]
+
+novel_modules: []
+
+traps:
+  - "LLM backbone parameters (hidden_size / num_hidden_layers etc.) are nested in text_config, not at top-level config.json"
+  - "VLM layer_spec must use apply_mrope (3D T/H/W), not standard apply_rotary_pos_emb"
+  - "ViT layer_spec uses AttnMaskType.no_mask (bidirectional); LLM layer_spec uses causal; the two are not interchangeable"
+  - "Qwen2.5-VL ViT normalization=RMSNorm; Qwen2-VL ViT normalization=LayerNorm; must not mix"
+  - "spatial_merge_size affects patch merger weight shape; must be explicitly configured in convert yaml"
+
+weight_structure:
+  total_keys: 291
+  components:
+    llm:
+      key_count: 241
+      sample_keys:
+        - "model.layers.0.self_attn.q_proj.weight"
+        - "model.layers.0.mlp.gate_proj.weight"
+        - "model.embed_tokens.weight"
+        - "lm_head.weight"
+      naming_pattern: "model.layers.{i}.{module}.{param}"
+      index_range: "model.layers.0 ~ model.layers.27"
+    vision_encoder:
+      key_count: 32
+      sample_keys:
+        - "visual.blocks.0.attn.qkv.weight"
+        - "visual.merger.mlp.0.weight"
+      naming_pattern: "visual.blocks.{i}.{module}.{param}"
+    projector:
+      key_count: 4
+      sample_keys:
+        - "visual.merger.mlp.0.weight"
+        - "visual.merger.mlp.2.weight"
+      naming_pattern: "visual.merger.mlp.{i}.{param}"

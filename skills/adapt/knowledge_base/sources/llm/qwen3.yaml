@@ -1,0 +1,70 @@
+family: qwen3
+model_category: LLM
+
+# qwen3 supports both Dense (model_type=qwen3) and MoE (model_type=qwen3_moe)
+# Both share the same Omni implementation; Dense/MoE is distinguished by convert_yaml
+
+hf_reference:
+  path: /Users/weizhihao/workspace/agent_skills/harness/hf_models/transformers/src/transformers/models/qwen3
+  model_type: qwen3   # Dense variant; MoE variant is qwen3_moe
+
+structural_tags:
+  has_mla: false          # No q_lora_rank / kv_lora_rank fields
+  has_moe: true           # Supports MoE variant (num_experts field); Dense has num_experts=null
+  has_qk_layernorm: true  # Qwen3 enforces QK Norm (q_norm / k_norm)
+  has_linear_attn: false  # No GatedDeltaNet or other Linear Attention layers
+  has_mtp: false          # No MTP layers
+  is_mha: false           # GQA (num_key_value_heads field exists)
+  vocab_size_tier: standard   # vocab_size=151936 < 200k
+
+code_paths:
+  config:     loongforge/models/foundation/qwen3/qwen_config.py
+  layer_spec: loongforge/models/foundation/qwen3/qwen_layer_spec.py
+  model:      loongforge/models/foundation/qwen3/qwen_model.py
+  init:       loongforge/models/foundation/qwen3/__init__.py
+
+traps:
+  - field: kv_channels
+    detail: >
+      Qwen3's HF config.json contains head_dim=128 field. LoongForge requires explicitly setting
+      kv_channels: 128 in the yaml, otherwise the framework auto-calculates (hidden_size // num_heads)
+      which does not match the actual value, causing incorrect RoPE dimensions and training loss not decreasing.
+      Correct approach: All Qwen3 config files must explicitly write kv_channels: 128.
+
+  - field: add_qkv_bias
+    detail: >
+      Qwen3's QKV projections have no bias (opposite of Qwen2), add_qkv_bias must be set to false.
+      If copying from Qwen2's yaml directly, add_qkv_bias: true will be retained, causing parameter count
+      and weight shape mismatches.
+      Correct approach: All Qwen3 configs must explicitly write add_qkv_bias: false.
+
+  - field: qk_layernorm + TE version
+    detail: >
+      When qk_layernorm=true, TENorm significantly affects convergence under TE < 1.9 environments.
+      layer_spec.py includes auto-detection: when TE >= 1.9 and normalization is LayerNorm/RMSNorm, TENorm is used;
+      otherwise LocalNorm is used instead. No manual modification needed during adaptation, but the TE version
+      of the runtime environment must be confirmed.
+
+  - field: untie_embeddings_and_output_weights
+    detail: >
+      The HF field is tie_word_embeddings, and the LoongForge field has opposite semantics.
+      Correct approach: untie_embeddings_and_output_weights = not hf_config.tie_word_embeddings.
+
+  - field: pre_mlp_layernorm (MoE scenario)
+    detail: >
+      In Dense mode, pre_mlp_layernorm is fused into linear_fc1 (IdentityOp);
+      in MoE mode, it must be an independent TENorm, otherwise shape errors occur.
+      The logic in layer_spec: pre_mlp_layernorm = TENorm if config.num_moe_experts else IdentityOp.
+
+  - field: MoE TP>1 expert sharding
+    detail: >
+      For Qwen3-MoE with TP>1, the TP sharding rules for MoE expert weights differ from Dense layers.
+      convert.yaml must set args.mcore.transpose_query_key_value: true,
+      otherwise QKV shape mismatch causes training errors when TP>1.
+      Correct approach: See the corresponding field in configs/models/qwen3/ckpt_convert/qwen3_moe_convert.yaml.
+
+omni_reference:
+  model_yaml:         configs/models/qwen3/qwen3_8b.yaml
+  convert_yaml_dense: configs/models/qwen3/ckpt_convert/qwen3_convert.yaml
+  convert_yaml_moe:   configs/models/qwen3/ckpt_convert/qwen3_moe_convert.yaml
+  example_script:     examples/qwen3/pretrain/pretrain_qwen3_8b.sh

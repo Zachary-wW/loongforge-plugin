@@ -1,0 +1,43 @@
+family: mimo
+
+hf_reference:
+  path: /Users/weizhihao/workspace/agent_skills/harness/hf_models/llm/MiMo-7B-Base
+  modeling_files:
+    - modeling_mimo.py
+
+omni_reference:
+  config:       loongforge/models/foundation/mimo/mimo_config.py
+  layer_spec:   loongforge/models/foundation/mimo/mimo_layer_spec.py
+  model:        loongforge/models/foundation/mimo/mimo_model.py
+  model_yaml:   configs/models/mimo/mimo_7b.yaml
+  convert_yaml: configs/models/mimo/ckpt_convert/mimo_convert.yaml
+
+extra_files:
+  - name: mtp
+    path: loongforge/models/foundation/mimo/mimo_multi_token_prediction.py
+    generate: true
+    description: "MTP (Multi-Token Prediction) auxiliary layer implementation, inherits MultiTokenPredictionLayer"
+
+# Structural fingerprint (used by analyze.py fallback scoring when model_type matching fails)
+structural_tags:
+  has_mla: false
+  has_moe: false
+  has_qk_layernorm: false
+  has_linear_attn: false
+  has_mtp: true
+  is_mha: false
+  vocab_size_tier: "standard"
+
+traps:
+  - field: mtp_num_layers default value
+    detail: >
+      In mimo_config.py, if mtp_num_layers is not explicitly set to 0, some loading paths will enter the MTP branch,
+      causing forward output shape to be inconsistent with HF (HF inference does not include MTP layers).
+      Correct approach: During Phase 1 / Phase 2 backbone verification, explicitly set mtp_num_layers: 0 in the config yaml,
+      and enable MTP feature verification only after backbone accuracy passes.
+
+  - field: add_qkv_bias (opposite of Qwen3)
+    detail: >
+      MiMo is based on Qwen2 architecture with add_qkv_bias=True (includes QKV bias), opposite of Qwen3's false.
+      If modifying MiMo config based on Qwen3 config, it is easy to forget to change add_qkv_bias back to True,
+      causing QKV weight shape to miss 3 bias vectors and convert roundtrip key absence.

@@ -1,0 +1,167 @@
+# Phase 1 per-component strategy decision rules.
+# Phase 1 Step 2 reads this file before producing strategy_plan.
+
+version: 1
+purpose: >
+  Decide final_strategy for every component after comparing Phase 0's HF-based
+  preliminary component analysis with Megatron/LoongForge assembly evidence.
+
+inputs:
+  - phase0_output.artifacts.model_spec_path
+  - phase0_output.artifacts.reference_contract_path
+  - knowledge_base/schema/MEGATRON_COMPONENT_MAP.md
+  - relevant HF source pointers from model_spec.components[*]
+  - relevant Megatron source files and ModuleSpec examples
+
+preconditions:
+  - Contract preflight has passed or been explicitly skipped.
+  - Megatron architecture pre-read is complete.
+  - Each component has diff/new_component/behavior_modification evidence from model_spec.yaml.
+
+branches:
+  - id: branch_a_same
+    when: diff == same and no behavior_modification or unsupported structural tag applies
+    action: >
+      Locate the ModuleSpec for that component in the candidate Omni layer_spec,
+      record the reuse method, set final_strategy=reuse_ref, and do not read
+      extra Megatron implementation bodies.
+  - id: branch_b_differs_new_or_behavior
+    when: diff == differs, new_component, or any behavior_modification applies
+    required_reading:
+      - HF source for hf_class: __init__ submodule composition, forward data flow, delta points
+      - candidate Omni ModuleSpec for the component when it exists
+      - Megatron component source via MEGATRON_COMPONENT_MAP.md Section 5
+      - TransformerConfig / MLATransformerConfig fields controlling the component behavior
+      - minimal relevant forward/helper slice when behavior-only differences are declared
+    required_evidence:
+      - megatron_source_file
+      - interface_gaps
+      - behavior_gaps
+      - chosen_strategy_reason
+
+strategies:
+  - final_strategy: reuse_megatron
+    determination: >
+      Megatron module fully covers HF logic: interface, data flow, and numerical
+      behavior are consistent; all behavior modifications are already handled by
+      config fields or submodule slots.
+    step3_action: Only change layer_spec parameters and config fields.
+    contract_note: Cite required framework-native references in contract_evidence when present.
+    protected_file_implication: no protected shared-code edits expected
+
+  - final_strategy: wrap_megatron
+    determination: >
+      Megatron has a base class with correct data flow, and gaps are limited to
+      wrapper-level parameter adaptation or replaceable submodule slots. The wrapper
+      remains target-framework-native.
+    step3_action: >
+      Create a new subclass inheriting the Megatron base class, override difference
+      methods, or replace specific submodule slots in the ModuleSpec.
+    protected_file_implication: prefer new model-specific Omni file; avoid shared Megatron edits
+
+  - final_strategy: adapt_ref
+    determination: >
+      Megatron has no equivalent implementation, but candidate Omni or reference
+      code has a structurally similar implementation that needs substantive delta
+      modifications while preserving spec-driven assembly.
+    step3_action: Use candidate Omni file of the same name as base and modify per delta.
+    contract_note: HF-only reference adaptation must include a target-framework integration plan.
+    protected_file_implication: model-specific Omni adaptation preferred
+
+  - final_strategy: new_impl
+    determination: >
+      Megatron has no equivalent and Omni has no similar implementation; a new
+      module class must be created following the Megatron assembly pattern.
+    step3_action: Write from scratch following HF logic plus templates and MEGATRON_COMPONENT_MAP.md extension patterns.
+    contract_note: >
+      A self-contained model bypassing LoongForge/Megatron assembly is invalid
+      unless the contract explicitly allows standalone_reference.
+    protected_file_implication: create new model-specific module; do not bypass registry/factory
+
+  - final_strategy: override_in_omni
+    determination: >
+      Megatron structure is useful, but required behavior is model-specific or may
+      affect other models if changed in shared Megatron. Omni can express it through
+      layer_spec params, a model-specific subclass/wrapper, a config-gated verified
+      path, or a new model module.
+    step3_action: Implement under loongforge/models/foundation/<family>/ or reusable loongforge/models/common/, then replace the Megatron class/module in layer_spec.
+    protected_file_implication: safe default for model-specific behavior
+
+  - final_strategy: modify_megatron_general
+    determination: >
+      Existing Megatron behavior is incomplete or incorrect for a generally valid
+      feature, and the fix is broadly correct/default-compatible across models.
+    step3_action: Modify Megatron only with explicit framework-bugfix authorization, blast-radius analysis, and regression tests.
+    protected_file_implication: requires authorization and tests
+
+  - final_strategy: insert_hook
+    determination: >
+      Existing conversion/reference/load/save or behavior flow needs an extension
+      point rather than a new component; the hook preserves default behavior for existing models.
+    step3_action: Add a default-no-op hook only when protected-file policy allows it or framework-bugfix authorization is in scope.
+    protected_file_implication: return human_needed if protected hook site cannot be changed safely
+
+  - final_strategy: modify_existing
+    determination: >
+      Existing non-Megatron shared Omni module is the correct abstraction, but required
+      behavior differs inside existing forward/helper logic and cannot be expressed
+      by config fields, layer_spec parameters, or submodule replacement.
+    step3_action: >
+      Do not edit blindly. Follow PROTECTED_FILES conditional-modify path: record
+      evidence, blast radius, tests, and return human_needed unless explicit framework-bugfix authorization is in scope.
+    protected_file_implication: high risk; requires explicit authorization unless already in scope
+
+contract_required_fields:
+  contract_evidence:
+    reference_ids: []
+    required_claims_satisfied: []
+  native_integration_evidence:
+    framework_native: true|false
+    module_spec_path: <path|null>
+    config_or_registry_path: <path|null>
+    normal_training_entrypoint: true|false
+  reference_used: []
+  forbidden_shortcut_check:
+    standalone_fallback: false
+    bypasses_registry_or_factory: false
+    ignores_required_reference: false
+
+native_integration_gate:
+  when: contract_preflight.native_integration_required is true
+  rule: >
+    Any implementation_contract.required_components[*] entry without an acceptable
+    target-framework-native or contract-allowed wrapper strategy blocks Phase 1.
+  on_failure:
+    status: human_needed
+    failure_gate: non_native_phase1_strategy
+
+high_risk_strategy_required_fields:
+  applies_to:
+    - override_in_omni
+    - modify_megatron_general
+    - modify_existing
+    - insert_hook
+  fields:
+    - required_file_or_hook_location
+    - behavior_gap_evidence
+    - why_lower_risk_options_are_insufficient
+    - blast_radius
+    - validation_tests
+    - protected_file_decision
+
+completion_conditions:
+  - all components have final_strategy
+  - new_file paths for wrap_megatron and new_impl are determined
+  - all behavior modifications map to a final_strategy or human_needed
+  - contract_preflight_passed is true when contract exists
+  - every contract-required component has a target-framework-native or contract-allowed wrapper strategy
+  - no_self_contained_fallback is true
+  - rejected_shortcuts records discarded fallback/reversible paths
+
+shared_megatron_change_policy: >
+  AIAK-Megatron is shared infrastructure, not read-only. Modify it only when the
+  change is a general correctness fix or default-compatible extension point. If
+  behavior is model-specific or may affect other models, prefer Omni-side solutions
+  in this order: layer_spec module/params selection, model-specific subclass/wrapper,
+  config-gated verified path, new model-specific module. If none works or blast
+  radius is unclear, return human_needed with the Megatron file and reason.

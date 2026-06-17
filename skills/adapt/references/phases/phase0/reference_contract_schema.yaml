@@ -1,0 +1,58 @@
+# Schema template for phases/phase0/reference_contract.yml.
+# Phase 0 fills this with model-specific references and downstream contracts.
+
+references:
+  - id: ref_0
+    locator: <path-or-url-or-commit>
+    type: megatron|hf_transformers|omni|issue|design_doc|commit|other
+    priority: required|advisory
+    scope: [architecture, operator_semantics, checkpoint_conversion, runtime_integration, validation]
+    trust_level: user_provided|upstream|local_wip|inferred
+    role:
+      network: true|false
+      conversion: true|false
+      precision_reference: true|false
+    framework_native: true|false
+    entrypoints:
+      model_classes: []
+      config_classes: []
+      layer_spec_files: []
+      converter_files: []
+      scripts: []
+    component_coverage:
+      attention: full|partial|none|unknown
+      mlp: full|partial|none|unknown
+      moe: full|partial|none|unknown
+      norm: full|partial|none|unknown
+      embeddings: full|partial|none|unknown
+      output_head: full|partial|none|unknown
+    limitations: []
+
+implementation_contract:
+  required_integration_level: framework_native|framework_extension|omni_wrapper|standalone_reference
+  allow_standalone_fallback: true|false
+  allow_shared_framework_changes: true|false
+  required_components:
+    - name: <component>
+      acceptable_strategies: [reuse_megatron, wrap_megatron, adapt_ref, new_impl, override_in_omni, modify_megatron_general, insert_hook]
+      required_evidence: []
+  forbidden_final_patterns:
+    - standalone_fallback_when_framework_native_required
+    - phase3_operator_tuning_without_strategy_recheck
+
+conversion_requirements:
+  target_checkpoint_format: mcore|native_framework|hf_only
+  must_emit_target_checkpoint: true|false
+  must_load_in_target_framework: true|false
+  hf_roundtrip_is_verification_only: true|false
+  forbidden_shortcuts:
+    - reversible_hf_container
+    - metadata_only_roundtrip
+    - hf_key_preserving_mcore_stub
+    - rebuilt_hf_from_original_source_without_mcore_load
+
+phase3_reference_requirements:
+  allowed_reference_types: [hf, megatron, standalone]
+  custom_reference_loader_required: true|false
+  custom_reference_loader_reason: <string|null>
+  standalone_allowed: true|false

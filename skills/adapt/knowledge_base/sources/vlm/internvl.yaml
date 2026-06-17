@@ -1,0 +1,53 @@
+family: internvl
+model_category: VLM
+
+# VLM architecture: InternLM2/3 LLM + InternViT encoder + MLP2x projector
+# InternVL2.5: LLM=InternLM2 (dense), ViT=InternViT-300M
+# InternVL3.5: LLM=InternLM3 (dense/MoE), ViT=InternViT-300M or 6B
+# Checkpoint convert three stages: convert LLM + ViT + projector separately, then merge
+
+hf_reference:
+  path: /Users/weizhihao/workspace/agent_skills/harness/hf_models/vlm/InternVL2_5-78B
+  model_type: internvl_chat   # HF InternVLChatConfig model_type field (from modeling_internvl_chat.py)
+
+structural_tags:
+  has_mla: false
+  has_moe: true       # InternVL3.5-30B-A3B LLM backbone is MoE (InternLM3-30B-A3B)
+  has_qk_layernorm: false     # internlm_config.py: qk_layernorm=False (default); InternViT-6B q/k layernorm uses InternViTRMSNorm, but InternViT-300M default is also False
+  has_linear_attn: false
+  has_mtp: false
+  is_mha: false               # InternLMConfig: group_query_attention=False (default), but supports GQA (num_query_groups field); actual model config has group_query_attention=True
+  vocab_size_tier: standard   # internlm_config.py: vocab_size=92553
+
+code_paths:
+  # LLM backbone (InternLM2/3)
+  config:     loongforge/models/foundation/internlm/internlm_config.py
+  layer_spec: loongforge/models/foundation/internlm/internlm_layer_spec.py
+  model:      loongforge/models/foundation/internlm/internlm_model.py
+  init:       loongforge/models/foundation/internlm/__init__.py
+  # Vision Encoder (InternViT)
+  encoder:    loongforge/models/encoder/internvl_vision_models/
+
+traps:
+  - field: attn_mask_type
+    detail: "ViT layer spec (internvl_layer_spec.py) must use AttnMaskType.no_mask (bidirectional); LLM uses causal; mistakenly using causal causes ViT attention output NaN and training cannot converge"
+  - field: FFN activation function
+    detail: "ViT uses GELU (single-path fc1, no merged gate+up), not SwiGLU; internvl_config.py has swiglu=False, gated_linear_unit=False; convert.yaml's ViT section does not need transpose_mlp_dense: true; incorrectly writing it causes ViT FFN shape mismatch"
+  - field: checkpoint convert three stages
+    detail: "InternVL requires three independent convert.yaml files (LLM + ViT + projector) converted separately then merged; the correct projector filename is intern_mlp_adapter_convert.yaml (not intern_mlp_adapter.yaml); only converting LLM causes ViT/projector weights to be missing, VLM loss not converging (LLM loss being normal can mislead troubleshooting direction)"
+  - field: MoE LLM (InternVL3.5-30B-A3B)
+    detail: "InternVL3.5-30B-A3B's LLM is MoE (InternLM3-30B-A3B); internlm_layer_spec.py current version has assert config.num_moe_experts is None, meaning Dense layer spec does not support MoE; additional implementation of _get_mlp_module_spec is needed to dynamically determine MoE/Dense, and for MoE layers set pre_mlp_layernorm=TENorm (Dense layer pre_mlp_layernorm is IdentityOp, fused into TELayerNormColumnParallelLinear)"
+  - field: merge checkpoint path
+    detail: >
+      VLM loss not converging but LLM standalone verification normal is usually caused by incorrect ViT/projector weight paths during checkpoint merge.
+      Check that merge_checkpoint.py's --encoder and --projector parameters point to correct mcore checkpoint paths,
+      and confirm that SAVE_VISION_MODEL / SAVE_ADAPTER paths in the convert shell are consistent with those in the merge script.
+
+omni_reference:
+  model_yaml:     configs/models/internvl3.5/internvl3_5_8b.yaml
+  # Checkpoint convert three stages (no unified convert yaml directory):
+  #   ViT-0.3B:  configs/models/image_encoder/ckpt_convert/internvl_vit_0.3b_convert.yaml
+  #   ViT-6B:    configs/models/image_encoder/ckpt_convert/internvl_vit_6b_convert.yaml
+  #   projector: configs/models/image_projector/ckpt_convert/intern_mlp_adapter_convert.yaml
+  #   LLM:       handled by internlm convert yaml (varies by model version)
+  example_script: examples/internvl3.5/checkpoint_convert/convert_internvl3.5_8b_hf_to_mcore.sh

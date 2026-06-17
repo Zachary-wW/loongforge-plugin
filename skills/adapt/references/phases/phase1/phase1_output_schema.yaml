@@ -1,0 +1,110 @@
+# Schema template for phases/phase1_output.yml.
+# Phase 1 fills this after Omni network code generation and phase1-verify pass.
+
+phase: 1
+status: passed
+summary: "Omni network code generated; forward alignment and trainability verified."
+
+step_gate:
+  mandatory_steps_complete: true
+steps:
+  step1:
+    status: passed
+    evidence: "run_inputs.yml, phase0_output.yml, and model_spec.yaml loaded"
+  step1_5:
+    status: passed
+    evidence: "Megatron architecture pre-read notes"
+  step1_6:
+    status: passed
+    evidence: "contract preflight result"
+  step2:
+    status: passed
+    evidence: "component strategy decision"
+  step3:
+    status: passed
+    evidence: "generated LoongForge files"
+  step4:
+    status: passed
+    evidence: "linter output"
+  step5:
+    status: passed
+    evidence: "code review output"
+  step6:
+    status: passed
+    evidence: "L0 smoke output"
+  step7:
+    status: passed
+    evidence: "phases/phase1/phase1_verify_report.json"
+
+source:
+  hf_ckpt_path: <original HF checkpoint path, from phase0_output>
+  hf_modeling_path: <from run_inputs.yml>
+  omni_path: <from run_inputs.yml>
+  megatron_path: <from run_inputs.yml>
+
+model:
+  model_name: <name>
+  model_type: llm|vlm|diffusion
+  candidate_family: <family>
+  candidate_match_reason: <reason>
+
+artifacts:
+  model_spec_path: <from phase0_output>
+  reference_contract_path: <from phase0_output or null>
+  wip_analysis_path: <from phase0_output or null>
+  generated_files:
+    - loongforge/models/foundation/<family>/...
+    - configs/models/<family>/...
+    - examples/<model>/...
+  example_pretrain_script: examples/<model>/pretrain/pretrain_<model>.sh
+  phase1_verify_report_path: phases/phase1/phase1_verify_report.json
+  phase1_alignment_path: phases/phase1/phase1_alignment.json
+  phase1_verified_script: phases/phase1/pretrain_<model>_trimmed.sh
+
+strategy:
+  overrides: {}
+  notes: []
+  contract_preflight:
+    status: passed|skipped
+    required_integration_level: framework_native|framework_extension|omni_wrapper|standalone_reference|null
+    native_integration_required: true|false
+    required_references: []
+    forbidden_final_patterns: []
+    missing_extension_points: []
+  native_integration_summary:
+    all_required_components_framework_native: true
+    no_self_contained_fallback: true
+    rejected_shortcuts: []
+  contract_evidence:
+    referenced_contract_path: <path|null>
+    component_evidence: {}
+
+checks:
+  model_spec_loaded: true
+  strategy_plan_complete: true
+  contract_preflight_passed: true|null
+  all_required_components_framework_native: true|null
+  no_self_contained_fallback: true|null
+  code_generated: true
+  linter_passed: true
+  code_review_passed: true
+  l0_smoke_passed: true
+  forward_alignment_passed: true
+  trainability_verified: true
+  behavior_alignment_passed: true  # true / false / skipped when behavior_modifications is empty
+
+validator:
+  name: phase1-verify
+  status: passed
+  attempt: 1
+  failure_gate: null
+  metrics:
+    hf_loss: 0.0
+    omni_loss: 0.0
+    loss_diff: 0.0
+    parameter_update_verified: true
+  commands: []
+  logs: []
+  artifacts: []
+  diagnosis: null
+  fallback_phase: null

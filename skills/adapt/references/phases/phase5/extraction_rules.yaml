@@ -1,0 +1,177 @@
+# Phase 5 knowledge-base extraction rules.
+# Phase 5 Step 1 reads this before writing sources YAML, INDEX.md, or LOG.md.
+
+version: 1
+purpose: >
+  Extract reusable model-family knowledge from Phase 0-4 outputs and model_spec.yaml
+  into knowledge_base/sources/<model_cat>/<family>.yaml, INDEX.md, and LOG.md.
+
+base_fields:
+  family: phase0_output.model.candidate_family
+  model_cat: phase0_output.model.model_type   # llm | vlm | diffusion
+  model_category_label: model_cat.upper()     # LLM | VLM | DIFFUSION
+  is_vlm: model_cat == "vlm"
+  is_diffusion: model_cat == "diffusion"
+  hf_path: run_inputs.source.hf_ckpt_path
+  model_name: run_inputs.options.model_name
+  phase1_ok: phase1_output.status == "passed" when phase1_output exists
+  phase1_files: phase1_output.artifacts.generated_files when phase1_output exists
+  phase2_ok: phase2_output.status == "passed" when phase2_output exists
+  phase2_files: phase2_output.artifacts.generated_files when phase2_output exists
+  phase3_status: phase3_output.status when phase3_output exists
+  phase4_status: phase4_output.status when phase4_output exists
+
+structural_tags:
+  source: run_dir/phases/phase0/model_spec.yaml
+  fields:
+    has_mla:
+      true_when:
+        - components.attention.structural_tags contains mla
+        - components.attention.structural_tags contains q_lora_rank
+      unknown_value: null
+      unknown_comment: "# TODO: requires manual confirmation"
+    has_moe:
+      true_when:
+        - components contains moe_gate
+        - components contains moe_layer
+      default: false
+    has_qk_layernorm:
+      true_when:
+        - components.attention.structural_tags contains q_norm
+        - components.attention.structural_tags contains qk_norm
+        - components.attention.structural_tags contains qk_layernorm and not qk_layernorm=false
+      default: false
+    has_linear_attn:
+      true_when:
+        - components contains linear_attn
+        - any component tag contains linear_attn
+        - any component tag contains GatedDeltaNet
+      default: false
+    has_mtp:
+      true_when:
+        - components contains mtp
+      default: false
+    is_mha:
+      true_when:
+        - components.attention.structural_tags contains mha
+      false_when:
+        - components.attention.structural_tags contains gqa
+        - no attention tag proves mha
+    vocab_size_tier:
+      source: hf_path/config.json vocab_size, fallback text_config.vocab_size for nested VLM configs
+      tiers:
+        small: vocab_size < 100000
+        standard: 100000 <= vocab_size <= 200000
+        large: vocab_size > 200000
+      unknown_value: null
+      unknown_comment: "# TODO: requires manual confirmation"
+
+diff_components:
+  llm: Collect component keys under components where diff == differs.
+  vlm: Collect keys where diff == differs under both components and vlm_components when present.
+  diffusion: Collect keys where diff == differs under components and diffusion-specific sections when present.
+  empty_value: none
+  output_format: comma-separated string for LOG.md Major diff components.
+
+traps:
+  source_sections:
+    - model_spec.traps
+    - model_spec.special_features
+  string_rule:
+    field: first word before the first space, or the first Chinese word when applicable
+    detail: full original string, preserving original text
+  special_features_rule:
+    field: feature.hf_key
+    detail: feature.desc
+  empty_output: "traps: []"
+  deduplication_key: field
+
+code_paths:
+  only_when: phase1_ok is true
+  placeholder_when_missing: "# Phase 1 not complete, to be supplemented"
+  categories:
+    llm:
+      source: phase1_files
+      match_rules:
+        - pattern: "*_config.py"
+          field: config
+        - pattern: "*_layer_spec.py"
+          field: layer_spec
+        - pattern: "*_model.py"
+          field: model
+        - pattern: "__init__.py"
+          field: init
+      fallback_rule: >
+        Other .py files under loongforge/models/foundation/<family>/ use the
+        filename without .py as the field name.
+      fallback_example:
+        gated_attention.py: loongforge/models/foundation/qwen3_next/gated_attention.py
+    vlm:
+      inherits: llm
+      encoder_rule: >
+        Find phase1_files entries containing loongforge/models/encoder/, extract
+        the encoder module directory up to loongforge/models/encoder/<name>/, and
+        write encoder:. If multiple encoder directories exist, write encoder_1,
+        encoder_2, etc.
+    diffusion:
+      source: phase1_files
+      base_dir: loongforge/models/diffusion/<family>/
+      match_rules:
+        - pattern: "*_config.py"
+          field: config
+        - pattern: "*_layer_spec.py"
+          field: layer_spec
+        - pattern: "*_model.py"
+          field: model
+        - pattern: "__init__.py"
+          field: init
+      fallback_rule: Other .py files under the diffusion family directory use filename without .py as field name.
+
+omni_reference:
+  only_when: phase2_ok is true
+  placeholder_when_missing: "# Phase 2 not complete, to be supplemented"
+  categories:
+    llm:
+      source: phase2_files
+      match_rules:
+        - pattern: configs/models/<family>/<any>.yaml without ckpt_convert in path
+          field: model_yaml
+        - pattern: configs/models/<family>/ckpt_convert/*.yaml
+          field: convert_yaml
+        - pattern: examples/<family>/pretrain/*.sh or examples/<family>/*.sh
+          field: example_script
+      multiple_convert_yaml_rule: >
+        If dense and MoE each have a convert YAML, use convert_yaml_dense and
+        convert_yaml_moe.
+    vlm:
+      source: phase2_files
+      match_rules:
+        - pattern: configs/models/<family>/*.yaml without ckpt_convert
+          field: model_yaml
+        - pattern: .sh under examples/<family>/
+          field: example_script
+      convert_stage_comments:
+        image_encoder: Path containing image_encoder is the ViT convert YAML.
+        image_projector: Path containing image_projector is the projector convert YAML.
+        llm: Other ckpt_convert YAMLs are the LLM convert YAML.
+      note: Write VLM three-stage convert paths as comments following the VLM source template.
+    diffusion:
+      source: phase2_files
+      match_rules:
+        - pattern: configs/models/<family>/<any>.yaml without ckpt_convert in path
+          field: model_yaml
+        - pattern: configs/models/<family>/ckpt_convert/*.yaml
+          field: convert_yaml
+        - pattern: examples/<family>/*.sh, examples/<family>/pretrain/*.sh, or examples/<family>/custom/*.sh
+          field: example_script
+
+append_flow_rules:
+  - if code_paths section does not exist, insert complete code_paths before traps using the model-category template.
+  - if VLM code_paths exists but missing encoder, append encoder or encoder_N field.
+  - if omni_reference section does not exist, append complete omni_reference section at file end using the model-category template.
+  - append new traps after deduplicating by field.
+
+source_templates:
+  llm: references/phases/phase5/source_templates/llm.yaml
+  vlm: references/phases/phase5/source_templates/vlm.yaml
+  diffusion: references/phases/phase5/source_templates/diffusion.yaml

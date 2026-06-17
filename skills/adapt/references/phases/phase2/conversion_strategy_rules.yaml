@@ -1,0 +1,145 @@
+# Phase 2 conversion strategy and architecture adaptation rules.
+# Phase 2 Step 2 reads this file before modifying tools/convert_checkpoint/.
+
+version: 1
+purpose: >
+  Classify conversion requirements from weight_structure and behavior_modifications,
+  then choose the lowest-risk converter adaptation strategy that preserves existing
+  conversion behavior for supported models.
+
+inputs:
+  - phase0_output.artifacts.model_spec_path
+  - model_spec.weight_structure
+  - model_spec.behavior_modifications
+  - knowledge_base/convert_checkpoint/MODULE_FORMATS.md
+  - knowledge_base/convert_checkpoint/ADAPTATION_GUIDE.md
+  - knowledge_base/convert_checkpoint/CUSTOM_CONVERTERS.md
+  - knowledge_base/schema/PROTECTED_FILES.md
+
+preconditions:
+  - Step 0 conversion contract preflight passed or was explicitly skipped.
+  - Step 1 module_format_map classified every component as Tier 0, Tier 1, Tier 2, or Tier 3.
+  - Tier 3 has already returned human_needed with failure_gate=unsupported_module_format.
+
+conversion_strategies:
+  - name: append_mapping
+    use_when: New tensor keys follow existing load/save semantics and only need YAML/constants/TP-dim entries.
+    typical_edits:
+      - add YAML name_map entries
+      - append semantic constants/classification entries
+      - register tensor parallel dimension when needed
+    risk: low
+
+  - name: insert_load_preprocess
+    use_when: HF/MCore load needs key normalization, split, dequant, tied-copy, or metadata preprocessing before generic mapping.
+    examples:
+      - FP8 .scale -> .weight_scale_inv normalization
+      - grouped/tied tensor expansion before common mapping
+    risk: medium
+    protected_file_note: Prefer model-specific hook with default no-op behavior.
+
+  - name: insert_save_postprocess
+    use_when: Save/rebuild needs merge, rename, tied-copy, or metadata restoration after generic mapping.
+    examples:
+      - MTP tied head copy during rebuilt-HF save
+      - HC alpha split/merge restoration
+    risk: medium
+    protected_file_note: Prefer model-specific hook with default no-op behavior.
+
+  - name: override_parallel_dim
+    use_when: Tensor uses a model-specific TP dimension not covered by existing TENSOR_PARALLEL_DIM.
+    typical_edits:
+      - append TENSOR_PARALLEL_DIM entry
+      - document tensor axis evidence from sample_keys and tensor shapes
+    risk: low_to_medium
+
+  - name: custom_roundtrip_rule
+    use_when: Roundtrip comparison needs model-specific tolerance, expected missing keys, or FP8 dequant policy.
+    typical_edits:
+      - add model-specific comparison metadata
+      - record expected missing/unexpected keys with evidence
+    risk: medium
+    protected_file_note: Must not mask real missing conversion coverage.
+
+tiers:
+  tier0:
+    description: All modules match existing formats; no tools/convert_checkpoint code changes required.
+    action: Skip Step 2 and proceed to Step 3 convert YAML + shell generation.
+
+  tier1:
+    description: Pure config/mapping adaptation, no new converter algorithm.
+    allowed_edits:
+      - file: common/common_checkpoint.py
+        rule: Add new semantic constants and append to corresponding classification lists such as BASE_NAMES.
+      - file: mcore/mcore_base.py
+        rule: If TP splitting is needed, register new parameters in TENSOR_PARALLEL_DIM.
+    disallowed_edits:
+      - modify existing branch conditions
+      - modify existing converter algorithms
+      - change generic load/save semantics for existing models
+
+  tier2:
+    description: New converter or hook required, in addition to Tier 1 changes.
+    allowed_edits:
+      - file: huggingface/util/hf_<name>_converter.py
+        rule: Create new converter implementing cat_*() / split_*() as needed.
+      - file: huggingface/huggingface_base.py
+        rule: Append a new hf_to_common() / common_to_hf() branch at the end of the method.
+      - file: mcore/util/mcore_<name>_converter.py
+        rule: Create new converter when mcore-side conversion logic is needed.
+      - file: mcore/mcore_base.py
+        rule: Append new branch or TP-dim registration only.
+      - hook: model_specific_load_save_hook
+        rule: Prefer a default-no-op model-specific hook for load/save preprocess or postprocess.
+    disallowed_edits:
+      - change existing if/elif conditions
+      - reorder existing converter branches
+      - modify existing converter algorithms
+      - introduce behavior changes for existing model families
+
+protected_file_constraint:
+  rule_id: R021
+  summary: >
+    Only append new elif branches at the end of methods or create new converter
+    files. Modifying existing branch logic is prohibited unless explicit
+    framework-bugfix authorization is in scope.
+  if_existing_logic_must_change:
+    classify_as:
+      - modify_existing
+      - insert_hook
+    default_status: human_needed
+    failure_gate: protected_file_change_required
+    required_artifacts:
+      - protected file path
+      - required change
+      - blast radius
+      - regression tests
+
+required_evidence:
+  - module_format_map entry that triggered Step 2
+  - conversion_strategy selected for each new requirement
+  - sample_keys and tensor shape evidence
+  - files created or appended
+  - protected-file decision
+  - reason existing format/rule is insufficient
+
+examples:
+  - case: HC alpha split/merge
+    strategies:
+      - insert_load_preprocess
+      - insert_save_postprocess
+  - case: FP8 .scale to .weight_scale_inv
+    strategies:
+      - insert_load_preprocess
+  - case: MTP tied head copy
+    strategies:
+      - insert_save_postprocess
+  - case: grouped output projection
+    strategies:
+      - override_parallel_dim
+
+completion_conditions:
+  - every Tier 1/2 requirement has a conversion_strategy
+  - every modified or created converter path is recorded for Step 4 code review
+  - protected-file constraints are satisfied or Phase 2 returns human_needed
+  - changes are append-only or new-file unless explicit framework-bugfix authorization is in scope

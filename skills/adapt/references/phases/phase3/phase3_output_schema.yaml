@@ -1,0 +1,136 @@
+# Schema template for phases/phase3_output.yml.
+# Phase 3 emits this top-level shape. Select values according to reference_type.
+
+phase: 3
+status: passed | human_needed
+summary: "Precision Verification: PASS/HUMAN_NEEDED - loss_diff: ..., train_step_loss_max_diff: ..."
+attempt: 1
+
+step_gate:
+  mandatory_steps_complete: true
+steps:
+  step0:
+    status: passed
+    evidence: "contract and artifact preflight result"
+  step1:
+    status: passed
+    evidence: "mock input artifact"
+  step2:
+    status: passed
+    evidence: "reference type decision"
+  step2s:
+    status: skipped
+    required: false
+    reason: "reference-mode loss diff does not use standalone smoke checks"
+  step3:
+    status: passed
+    evidence: "run_real_weight.sh derived from Phase 1 example"
+  step4:
+    status: passed
+    evidence: "loss-diff Stage 1 result"
+  step5:
+    status: passed
+    evidence: "loss-diff Stage 1b result or skip reason"
+  step6:
+    status: passed
+    evidence: "loss-diff Stage 2 result"
+  step7:
+    status: passed
+    evidence: "loss-diff Stage 2b result or skip reason"
+  step8:
+    status: passed
+    evidence: "verify_report.json"
+  step9:
+    status: passed
+    evidence: "final Phase 3 status decision"
+
+source:
+  hf_ckpt_path: "<from run_inputs.yml — original HF path>"
+  mcore_ckpt: "<phase2_output.artifacts.output_ckpt>"
+  convert_yaml: "<resolved from phase2_output.artifacts.generated_files; null for standalone if not used>"
+
+model:
+  name: "<run_inputs.options.model_name>"
+  reference_type: hf | megatron | standalone
+  reference_framework: transformers | megatron | none
+
+artifacts:
+  verify_report_path: "<phase3_dir>/verify_report.json"
+  mock_input_path: "<phase3_dir>/mock_input/mock_input.pt"
+  run_real_weight_script: "<phase3_dir>/run_real_weight.sh"
+  runtime_batch_export_path: "<phase3_dir>/runtime/runtime_batch_export.pt"  # null for standalone
+  runtime_loss_export_path: "<phase3_dir>/runtime/runtime_loss_export.pt"    # null for standalone
+  hf_recompute_command: "python <phase3_dir>/hf_loss_from_runtime_batch.py"  # null for standalone/non-HF reference
+  loss_diff_output: "<phase3_dir>/loss_diff/"                               # null for standalone
+  hf_tensors: "<phase3_dir>/hf_tensors/"                                     # null for standalone/non-HF reference
+
+checks:
+  # Reference-mode checks (hf/megatron)
+  real_example_script_used: true
+  torchrun_used: true
+  entrypoint_verified: "torchrun -> loongforge/train.py"
+  same_batch_verified: true
+  same_device_verified: true
+  hf_recomputed_on_exported_real_batch: true
+  forward_loss_diff: 0.001
+  train_step_loss_max_diff: 0.001
+  grad_norms_finite: true
+  per_layer_diagnosis: null | "<diverge_layer>"
+
+  # Standalone-smoke checks; null/skipped for normal reference-mode runs.
+  loss_range_passed: true | null
+  determinism_passed: true | null
+  gradient_finite: true | null
+  parameter_update_verified: true | null
+  convergence_trend: passed | warn | skipped | null
+
+validator:
+  name: loss-diff
+  status: passed
+  attempt: 1
+  failure_gate: null
+  metrics:
+    # Reference-mode metrics.
+    loss_diff: 0.001
+    train_step_loss_max_diff: 0.001
+    grad_norms_finite: true
+
+    # Standalone-smoke metrics; null/skipped for normal reference-mode runs.
+    standalone_mode_explicitly_requested: true | null
+    loss_range_passed: true | null
+    gradient_finite: true | null
+    parameter_update_verified: true | null
+  artifacts:
+    - "<phase3_dir>/verify_report.json"
+    - "<phase3_dir>/mock_input/mock_input.pt"
+  diagnosis: null | "standalone mode has no external reference loss alignment"
+  fallback_phase: null
+
+mode_rules:
+  hf_or_megatron:
+    reference_type_values: [hf, megatron]
+    required_steps: [step0, step1, step2, step3, step4, step6, step8, step9]
+    optional_or_conditional_steps: [step5, step7]
+    standalone_steps: [step2s]
+    standalone_steps_status: skipped
+    required_checks:
+      - real_example_script_used
+      - torchrun_used
+      - entrypoint_verified
+      - same_batch_verified
+      - same_device_verified
+      - forward_loss_diff
+      - train_step_loss_max_diff
+      - grad_norms_finite
+  standalone:
+    reference_type_values: [standalone]
+    explicit_dispatch_required: true
+    required_steps: [step0, step1, step2, step2s, step3, step8, step9]
+    loss_diff_stage_steps: [step4, step5, step6, step7]
+    loss_diff_stage_steps_status: skipped
+    required_checks:
+      - loss_range_passed
+      - determinism_passed
+      - gradient_finite
+      - parameter_update_verified
+    diagnosis: "standalone mode has no external reference loss alignment"

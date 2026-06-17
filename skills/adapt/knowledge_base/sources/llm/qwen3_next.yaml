@@ -1,0 +1,68 @@
+family: qwen3_next
+model_category: LLM
+
+# qwen3_next is pure MoE (model_type=qwen3_moe_next), only has MoE convert YAML
+# Architecture features: Gated Softmax Attention + GatedDeltaNet linear attention hybrid + MoE + MTP
+# Depends on FLA library (flash-linear-attention) for GatedDeltaNet operator
+
+hf_reference:
+  path: /Users/weizhihao/workspace/agent_skills/harness/hf_models/llm/Qwen3-Next-80B-A3B-Instruct
+  model_type: qwen3_moe_next   # HF config.json model_type field
+
+structural_tags:
+  has_mla: false          # No q_lora_rank / kv_lora_rank fields
+  has_moe: true           # Pure MoE architecture (num_experts / n_routed_experts fields)
+  has_qk_layernorm: true  # Full Attention layers enable QK Norm (Qwen3NextRMSNorm implementation)
+  has_linear_attn: true   # Hybrid architecture: GatedDeltaNet linear attention layers (controlled by full_attention_interval)
+  has_mtp: true           # Contains MTP (Multi-Token Prediction) layers (mtp_num_layers field)
+  is_mha: false           # GQA (num_key_value_heads field exists)
+  vocab_size_tier: standard   # vocab_size=151936 < 200k
+
+code_paths:
+  config:          loongforge/models/foundation/qwen3_next/qwen3_next_config.py
+  layer_spec:      loongforge/models/foundation/qwen3_next/qwen3_next_layer_spec.py
+  model:           loongforge/models/foundation/qwen3_next/qwen3_next_model.py
+  init:            loongforge/models/foundation/qwen3_next/__init__.py
+  gated_attention: loongforge/models/foundation/qwen3_next/gated_attention.py
+  gated_deltanet:  loongforge/models/foundation/qwen3_next/gated_deltanet.py
+
+traps:
+  - field: full_attention_interval / hybrid layer order
+    detail: >
+      layer_spec determines layer type by (i+1) % full_attention_interval == 0:
+      layers with remainder 0 are Full Attention (Qwen3NextSelfAttention); the rest are Linear Attention (GatedDeltaNet).
+      Note that indexing starts from 0: layers 1, 2, 3 are Linear, layer 4 is Full Attention.
+      Full Attention layers use Qwen3NextSelfAttention (contains gate tensor),
+      and standard SelfAttention cannot be mixed in (would error due to incompatible QKV layout).
+
+  - field: MTP layer weight prefix
+    detail: >
+      MTP layers have independent weight key prefixes (mtp.*), including enorm, hnorm, layer_norm sublayers.
+      Standard convert scripts do not handle these weights, causing MTP layer weights to be missing or fail to load.
+      Correct approach: convert yaml must explicitly list mtp_* field mappings,
+      see configs/models/qwen3_next/ckpt_convert/qwen3_next_moe_convert.yaml.
+
+  - field: Qwen3NextRMSNorm (zero-centered RMSNorm)
+    detail: >
+      All layernorms (input_layernorm, pre_mlp_layernorm, q/k_layernorm, MTP's enorm/hnorm)
+      use Qwen3NextRMSNorm, with weights initialized to zeros, computed as (1+weight)*norm(x).
+      If loading standard RMSNorm weights (initialized to ones), a weight-=1 offset is required,
+      but no offset is needed when converting directly from HF (HF side implementation is consistent).
+
+  - field: shared_expert (MoE-specific)
+    detail: >
+      qwen3_next's MoE layers contain shared_expert (mlp.shared_expert) and shared_expert_gate.
+      convert yaml must explicitly add mappings for these two items, otherwise shared expert weights will be skipped.
+      See the moe.shared_expert / moe.shared_expert_gate fields in qwen3_next_moe_convert.yaml.
+
+  - field: GatedDeltaNet depends on FLA library
+    detail: >
+      GatedDeltaNet forward depends on fla.ops.gated_delta_rule.chunk_gated_delta_rule and
+      fla.modules.convolution.causal_conv1d and other FLA operators.
+      If the flash-linear-attention (fla) package is not installed, import does not error (HAVE_FLA=False),
+      but an AssertionError is triggered at runtime. FLA installation must be confirmed before adaptation.
+
+omni_reference:
+  model_yaml:     configs/models/qwen3_next/qwen3_next_80b_a3b.yaml
+  convert_yaml:   configs/models/qwen3_next/ckpt_convert/qwen3_next_moe_convert.yaml
+  example_script: examples/qwen3_next/pretrain/pretrain_qwen3_next_80b_a3b.sh
