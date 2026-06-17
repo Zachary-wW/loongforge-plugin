@@ -1,6 +1,5 @@
 from pathlib import Path
 import subprocess
-import sys
 
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +38,23 @@ def test_issue_loop_cli_help_runs():
     )
     assert result.returncode == 0
     assert "LoongForge issue-driven adapt loop" in result.stdout
+
+
+def test_issue_loop_cli_documented_placeholder_options_parse():
+    commands = (
+        ("init", "--target", "phase-1", "--repo", "owner/repo"),
+        ("compare-phase", "--phase", "phase-1", "--run-dir", "runs/phase-1"),
+        ("sync-issue", "--issue-spec", "issue.yaml", "--dry-run"),
+    )
+    for command in commands:
+        result = subprocess.run(
+            [str(PLUGIN_ROOT / "bin" / "loongforge-issue-loop"), *command],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2
+        assert "subcommand not implemented yet" in result.stderr
+        assert "unrecognized arguments" not in result.stderr
 
 
 def test_readme_mentions_issue_loop():

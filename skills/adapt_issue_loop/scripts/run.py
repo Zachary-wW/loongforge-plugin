@@ -12,10 +12,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=DESCRIPTION)
     parser.add_argument("--version", action="version", version="loongforge-issue-loop 0.1.0")
     sub = parser.add_subparsers(dest="command")
-    sub.add_parser("init", help="Initialize local issue-loop state")
-    sub.add_parser("compare-phase", help="Compare a phase against static baseline rules")
+
+    init = sub.add_parser("init", help="Initialize local issue-loop state")
+    init.add_argument("--target", help="Target path or identifier for initialization")
+    init.add_argument("--repo", help="Repository path or slug")
+
+    compare_phase = sub.add_parser("compare-phase", help="Compare a phase against static baseline rules")
+    compare_phase.add_argument("--phase", help="Phase identifier to compare")
+    compare_phase.add_argument("--run-dir", help="Run directory containing comparator inputs")
+
     sub.add_parser("issue-from-report", help="Create IssueSpec files from a comparator report")
-    sub.add_parser("sync-issue", help="Create or update a GitHub Issue from an IssueSpec")
+
+    sync_issue = sub.add_parser("sync-issue", help="Create or update a GitHub Issue from an IssueSpec")
+    sync_issue.add_argument("--issue-spec", help="Path to an IssueSpec file")
+    sync_issue.add_argument("--dry-run", action="store_true", help="Parse and validate without changing GitHub")
+
     sub.add_parser("verify-merge-gate", help="Evaluate deterministic merge-gate inputs")
     sub.add_parser("run-dry", help="Run local dry-run pipeline without touching GitHub")
     return parser
