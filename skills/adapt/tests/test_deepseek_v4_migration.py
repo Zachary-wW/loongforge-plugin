@@ -38,7 +38,18 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+def _require_target_omni() -> None:
+    if not (TARGET_OMNI / "loongforge").is_dir():
+        pytest.skip(f"AIAK-Training-Omni target tree not present at {TARGET_OMNI}")
+
+
+def _require_target_megatron() -> None:
+    if not (TARGET_MEGATRON / "megatron" / "core").is_dir():
+        pytest.skip(f"AIAK-Megatron target tree not present at {TARGET_MEGATRON}")
+
+
 def test_target_v4_package_is_present():
+    _require_target_omni()
     pkg = TARGET_OMNI / "loongforge" / "models" / "foundation" / "deepseek_v4"
     for name in (
         "__init__.py",
@@ -53,6 +64,7 @@ def test_target_v4_package_is_present():
 
 
 def test_target_v4_lite_4l_yaml_matches_lite_checkpoint():
+    _require_target_omni()
     yaml_text = _read(
         TARGET_OMNI
         / "configs"
@@ -81,6 +93,7 @@ def test_target_v4_lite_4l_yaml_matches_lite_checkpoint():
 
 
 def test_target_omni_registrations():
+    _require_target_omni()
     constants = _read(TARGET_OMNI / "loongforge" / "utils" / "constants.py")
     assert 'DEEPSEEK_V4 = "deepseek_v4"' in constants
 
@@ -101,6 +114,7 @@ def test_target_omni_registrations():
 
 
 def test_target_omni_data_and_train_hooks():
+    _require_target_omni()
     chat_template = _read(TARGET_OMNI / "loongforge" / "data" / "chat_template.py")
     assert 'name="deepseek4"' in chat_template
 
@@ -109,6 +123,7 @@ def test_target_omni_data_and_train_hooks():
 
 
 def test_megatron_does_not_carry_v4_specifics():
+    _require_target_megatron()
     forbidden_files = (
         TARGET_MEGATRON
         / "megatron/core/transformer/experimental_attention_variant/csa.py",
@@ -138,6 +153,7 @@ def test_megatron_does_not_carry_v4_specifics():
 
 
 def test_megatron_only_extends_with_sqrtsoftplus():
+    _require_target_megatron()
     moe_utils = _read(
         TARGET_MEGATRON / "megatron/core/transformer/moe/moe_utils.py"
     )

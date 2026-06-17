@@ -22,6 +22,17 @@ REPO_ROOT = ROOT.parent
 SEVERITY_ORDER = {"INFO": 0, "WARN": 1, "FAIL": 2}
 
 
+def resolve_corpus_target(rel: str) -> Path:
+    candidates = [
+        REPO_ROOT / rel,
+        REPO_ROOT / "baidu" / "hac-aiacc" / "AIAK-Training-Omni" / rel,
+    ]
+    for target in candidates:
+        if target.exists():
+            return target
+    return candidates[0]
+
+
 def load_yaml(path: Path) -> dict:
     import yaml
     return yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -49,7 +60,7 @@ def main(argv) -> int:
         rel = spec["file"]
         rules = set(spec.get("rules") or [])
         max_allowed = spec.get("max_severity_allowed", "WARN")
-        target = REPO_ROOT / rel
+        target = resolve_corpus_target(rel)
         if not target.exists():
             report["files"].append({"file": rel, "status": "missing"})
             continue
