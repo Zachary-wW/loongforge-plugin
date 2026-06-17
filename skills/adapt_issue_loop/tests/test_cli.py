@@ -9,11 +9,12 @@ import yaml
 RUN_PY = Path(__file__).resolve().parents[1] / "scripts" / "run.py"
 
 
-def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
+def _run_cli(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(RUN_PY), *args],
         capture_output=True,
         text=True,
+        cwd=cwd,
     )
 
 
@@ -73,6 +74,52 @@ def test_init_writes_state_and_prints_state_dir(tmp_path):
     assert result.stdout.strip() == str(state_dir)
     state_yml = yaml.safe_load((state_dir / "state.yml").read_text())
     assert state_yml["repo"] == "owner/repo"
+
+
+def test_documented_init_command_defaults_plugin_root_to_cwd(tmp_path):
+    result = _run_cli(
+        "init",
+        "--target",
+        "ds-v4",
+        "--repo",
+        "owner/repo",
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    state_dir = tmp_path / ".loongforge" / "issue-loop"
+    assert result.stdout.strip() == str(state_dir)
+    assert yaml.safe_load((state_dir / "state.yml").read_text())["repo"] == "owner/repo"
+
+
+def test_compare_phase_run_dir_derives_defaults_from_state(tmp_path):
+    init_result = _run_cli("init", "--repo", "owner/repo", cwd=tmp_path)
+    assert init_result.returncode == 0, init_result.stderr
+    state_dir = Path(init_result.stdout.strip())
+
+    baseline = tmp_path / "baseline"
+    run_dir = tmp_path / "run"
+    generated = run_dir / "phases" / "phase0"
+    _write(
+        baseline / "deepseek_v4_config.py",
+        "qk_rope_head_dim = 64\no_lora_rank = 1024\nmtp_num_layers = 1\n",
+    )
+    _write(
+        generated / "model_spec.yaml",
+        "qk_rope_head_dim: 64\no_lora_rank: 1024\n",
+    )
+
+    state_yml = yaml.safe_load((state_dir / "state.yml").read_text())
+    state_yml["baseline"] = {"local": {"path": str(baseline), "commit": "test"}}
+    (state_dir / "state.yml").write_text(yaml.dump(state_yml))
+
+    result = _run_cli("compare-phase", "--phase", "0", "--run-dir", str(run_dir), cwd=tmp_path)
+
+    expected_report = state_dir / "comparator_reports" / "phase0-report.yml"
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == str(expected_report)
+    assert expected_report.exists()
+    assert yaml.safe_load(expected_report.read_text())["status"] == "failed"
 
 
 def test_compare_phase_writes_failed_report_with_issue_specs(tmp_path):

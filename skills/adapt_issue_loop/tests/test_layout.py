@@ -40,21 +40,23 @@ def test_issue_loop_cli_help_runs():
     assert "LoongForge issue-driven adapt loop" in result.stdout
 
 
-def test_issue_loop_cli_documented_placeholder_options_parse():
-    commands = (
-        ("init", "--target", "phase-1", "--repo", "owner/repo"),
-        ("compare-phase", "--phase", "phase-1", "--run-dir", "runs/phase-1"),
-        ("sync-issue", "--issue-spec", "issue.yaml", "--dry-run"),
+def test_issue_loop_cli_rejects_unsupported_target_without_parse_error(tmp_path):
+    result = subprocess.run(
+        [
+            str(PLUGIN_ROOT / "bin" / "loongforge-issue-loop"),
+            "init",
+            "--target",
+            "phase-1",
+            "--repo",
+            "owner/repo",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
     )
-    for command in commands:
-        result = subprocess.run(
-            [str(PLUGIN_ROOT / "bin" / "loongforge-issue-loop"), *command],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 2
-        assert "subcommand not implemented yet" in result.stderr
-        assert "unrecognized arguments" not in result.stderr
+    assert result.returncode == 1
+    assert "unsupported target" in result.stderr
+    assert "unrecognized arguments" not in result.stderr
 
 
 def test_readme_mentions_issue_loop():

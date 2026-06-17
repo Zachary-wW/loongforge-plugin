@@ -148,13 +148,18 @@ def default_goal_contract() -> dict[str, Any]:
     }
 
 
-def init_loop_state(plugin_root: Path, repo: str = DEFAULT_REPO) -> Path:
+def init_loop_state(plugin_root: Path, repo: str = DEFAULT_REPO, force: bool = False) -> Path:
     state_dir = plugin_root / STATE_REL_DIR
     state_dir.mkdir(parents=True, exist_ok=True)
     for child in ("issue_specs", "verification_reports", "comparator_reports"):
         (state_dir / child).mkdir(parents=True, exist_ok=True)
-    dump_yaml(state_dir / "state.yml", default_state(repo=repo))
-    dump_yaml(state_dir / "phase_goal_contract.yml", default_goal_contract())
+
+    state_path = state_dir / "state.yml"
+    contract_path = state_dir / "phase_goal_contract.yml"
+    if force or not state_path.exists():
+        dump_yaml(state_path, default_state(repo=repo))
+    if force or not contract_path.exists():
+        dump_yaml(contract_path, default_goal_contract())
     return state_dir
 
 

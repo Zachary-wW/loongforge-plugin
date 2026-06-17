@@ -125,3 +125,33 @@ def test_sync_issue_apply_comments_when_existing_issue_found(monkeypatch):
     assert calls[1][6] == "--body"
     assert calls[1][7].startswith("New evidence for `phase1:missing_deepseekv4model:baseline_static_compare`")
     assert "## Dedup key" in calls[1][7]
+
+
+def test_sync_issue_apply_reopens_closed_existing_issue_before_commenting(monkeypatch):
+    spec = _spec()
+    calls = []
+    existing = [{"number": 7, "url": "https://github.com/owner/repo/issues/7", "state": "CLOSED", "title": spec.title}]
+
+    def fake_run(cmd, *, check, capture_output, text):
+        calls.append(cmd)
+        if cmd[:3] == ["gh", "issue", "list"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(existing), stderr="")
+        if cmd[:3] == ["gh", "issue", "reopen"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        if cmd[:3] == ["gh", "issue", "comment"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(github.subprocess, "run", fake_run)
+
+    result = github.sync_issue("owner/repo", spec, dry_run=False)
+
+    assert result == {
+        "mode": "apply",
+        "action": "reopen",
+        "issue_url": "https://github.com/owner/repo/issues/7",
+        "issue_number": 7,
+    }
+    assert calls[1] == ["gh", "issue", "reopen", "7", "--repo", "owner/repo"]
+    assert calls[2][:6] == ["gh", "issue", "comment", "7", "--repo", "owner/repo"]
+    assert "## Dedup key" in calls[2][7]

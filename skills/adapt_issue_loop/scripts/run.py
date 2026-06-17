@@ -69,6 +69,56 @@ def _paths(values: list[str] | None, option_name: str) -> list[Path]:
     return [Path(value) for value in values]
 
 
+def _default_plugin_root(value: str | None) -> Path:
+    return Path(value) if value else Path.cwd()
+
+
+def _validate_target(target: str | None) -> None:
+    if target is None:
+        return
+    normalized = target.strip().lower().replace("-", "_")
+    if normalized != state.DEFAULT_TARGET:
+        raise ValueError(f"unsupported target: {target}; only ds-v4 is supported")
+
+
+def _baseline_roots_from_state(loop_state: Mapping[str, Any]) -> list[Path]:
+    baseline = loop_state.get("baseline")
+    if not isinstance(baseline, Mapping):
+        return []
+    roots: list[Path] = []
+    for item in baseline.values():
+        if isinstance(item, Mapping) and item.get("path"):
+            roots.append(Path(str(item["path"])))
+    return roots
+
+
+def _compare_paths(args: argparse.Namespace) -> tuple[Path, list[Path], list[Path], Path]:
+    plugin_root = _default_plugin_root(getattr(args, "plugin_root", None))
+    state_dir = Path(args.state_dir) if args.state_dir else state.init_loop_state(plugin_root, repo=state.DEFAULT_REPO)
+    phase = _parse_phase(args.phase)
+
+    if args.generated_roots:
+        generated_roots = _paths(args.generated_roots, "--generated-root")
+    elif args.run_dir:
+        generated_roots = [Path(args.run_dir) / "phases" / f"phase{phase}"]
+    else:
+        raise ValueError("compare-phase requires --run-dir or --generated-root")
+
+    if args.baseline_roots:
+        baseline_roots = _paths(args.baseline_roots, "--baseline-root")
+    else:
+        baseline_roots = _baseline_roots_from_state(state.load_state(state_dir))
+        if not baseline_roots:
+            raise ValueError("compare-phase requires --baseline-root or baseline paths in state.yml")
+
+    report_path = (
+        Path(args.report_out)
+        if args.report_out
+        else state_dir / "comparator_reports" / f"phase{phase}-report.yml"
+    )
+    return state_dir, generated_roots, baseline_roots, report_path
+
+
 def _load_yaml_mapping(path: Path, label: str) -> dict[str, Any]:
     try:
         data = yaml.safe_load(path.read_text())
@@ -97,28 +147,24 @@ def _issue_specs_from_report(report: Mapping[str, Any], out_dir: Path) -> list[t
 
 
 def _cmd_init(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    if args.plugin_root is None:
-        _legacy_not_implemented(parser, "init")
-    state_dir = state.init_loop_state(Path(args.plugin_root), repo=args.repo or state.DEFAULT_REPO)
+    _validate_target(args.target)
+    plugin_root = _default_plugin_root(args.plugin_root)
+    state_dir = state.init_loop_state(plugin_root, repo=args.repo or state.DEFAULT_REPO, force=args.force)
     print(state_dir)
     return 0
 
 
 def _cmd_compare_phase(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    if not all([args.generated_roots, args.baseline_roots, args.state_dir, args.report_out]):
-        _legacy_not_implemented(parser, "compare-phase")
-
     phase = _parse_phase(args.phase)
-    state_dir = Path(args.state_dir)
-    report_path = Path(args.report_out)
+    state_dir, generated_roots, baseline_roots, report_path = _compare_paths(args)
     goal_contract = state.load_goal_contract(state_dir)
     if not isinstance(goal_contract, dict):
         raise ValueError(f"Goal contract must be a YAML mapping: {state_dir / 'phase_goal_contract.yml'}")
 
     report = comparator.compare_phase_to_baseline(
         phase=phase,
-        generated_roots=_paths(args.generated_roots, "--generated-root"),
-        baseline_roots=_paths(args.baseline_roots, "--baseline-root"),
+        generated_roots=generated_roots,
+        baseline_roots=baseline_roots,
         goal_contract=goal_contract,
     )
     comparator.write_report(report_path, report)
@@ -199,13 +245,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
 
     init = sub.add_parser("init", help="Initialize local issue-loop state")
-    init.add_argument("--plugin-root", help="Plugin root where .loongforge/issue-loop will be created")
-    init.add_argument("--target", help="Target path or identifier for initialization")
+    init.add_argument("--plugin-root", help="Plugin root where .loongforge/issue-loop will be created (default: current directory)")
+    init.add_argument("--target", help="Target identifier; only ds-v4 is supported")
     init.add_argument("--repo", help="Repository path or slug")
+    init.add_argument("--force", action="store_true", help="Overwrite existing state.yml and phase_goal_contract.yml")
     init.set_defaults(func=_cmd_init)
 
     compare_phase = sub.add_parser("compare-phase", help="Compare a phase against static baseline rules")
     compare_phase.add_argument("--phase", help="Phase identifier to compare")
+    compare_phase.add_argument("--plugin-root", help="Plugin root for default state directory (default: current directory)")
     compare_phase.add_argument("--run-dir", help="Run directory containing comparator inputs")
     compare_phase.add_argument("--generated-root", dest="generated_roots", action="append", help="Generated artifact root to scan")
     compare_phase.add_argument("--baseline-root", dest="baseline_roots", action="append", help="Baseline source root to scan")

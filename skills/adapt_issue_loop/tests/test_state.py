@@ -45,6 +45,25 @@ def test_init_loop_state_writes_state_and_contract(tmp_path):
     assert loaded_contract["phase0"]["goal"].startswith("Extract enough DS V4")
 
 
+def test_init_loop_state_preserves_existing_files_unless_forced(tmp_path):
+    state_dir = state.init_loop_state(plugin_root=tmp_path, repo="owner/repo")
+    state_path = state_dir / "state.yml"
+    contract_path = state_dir / "phase_goal_contract.yml"
+
+    state_path.write_text(yaml.dump({"repo": "custom/repo", "active_phase": 2}))
+    contract_path.write_text(yaml.dump({"phase0": {"goal": "custom goal", "comparator_rules": []}}))
+
+    state.init_loop_state(plugin_root=tmp_path, repo="owner/repo")
+
+    assert yaml.safe_load(state_path.read_text())["repo"] == "custom/repo"
+    assert yaml.safe_load(contract_path.read_text())["phase0"]["goal"] == "custom goal"
+
+    state.init_loop_state(plugin_root=tmp_path, repo="owner/repo", force=True)
+
+    assert yaml.safe_load(state_path.read_text())["repo"] == "owner/repo"
+    assert yaml.safe_load(contract_path.read_text())["phase0"]["goal"].startswith("Extract enough DS V4")
+
+
 def test_update_state_merges_top_level_keys(tmp_path):
     state_dir = state.init_loop_state(plugin_root=tmp_path, repo="repo/example")
     updated = state.update_state(state_dir, {"active_phase": 1, "active_issue": 17})

@@ -60,6 +60,10 @@ def _comment_issue(repo: str, number: int, body: str) -> None:
     _run_gh(["issue", "comment", str(number), "--repo", repo, "--body", body])
 
 
+def _reopen_issue(repo: str, number: int) -> None:
+    _run_gh(["issue", "reopen", str(number), "--repo", repo])
+
+
 def sync_issue(repo: str, spec: issue_spec.IssueSpec, dry_run: bool) -> dict[str, Any]:
     body = spec.render_markdown()
     if dry_run:
@@ -76,11 +80,15 @@ def sync_issue(repo: str, spec: issue_spec.IssueSpec, dry_run: bool) -> dict[str
     existing = _find_issue(repo, spec.dedup_key)
     if existing:
         number = int(existing["number"])
+        action = "update"
+        if str(existing.get("state", "")).lower() == "closed":
+            _reopen_issue(repo, number)
+            action = "reopen"
         comment = f"New evidence for `{spec.dedup_key}`\n\n{body}"
         _comment_issue(repo, number, comment)
         return {
             "mode": "apply",
-            "action": "update",
+            "action": action,
             "issue_url": existing.get("url", ""),
             "issue_number": number,
         }
