@@ -6,6 +6,7 @@ Claude Code plugin namespace: `loongforge`.
 
 - `/loongforge:adapt` — LoongForge HuggingFace-to-LoongForge model adaptation workflow.
 - `/loongforge:adapt_eval` — Qualification-gate eval: backup → re-adapt → verdict against `eval/SCOREBOARD`.
+- `/loongforge:adapt_issue_loop` — Local-first issue-driven Phase 0-2 adapt iteration loop with GitHub Issue/PR handoff.
 
 ## CLI Wrappers
 
@@ -16,6 +17,9 @@ loongforge-adapt <hf_path> [options]
 loongforge-adapt --resume <run_dir> [--from-phase <N>]
 loongforge-phase-gate --run-dir <run_dir> --phase <N>
 loongforge-adapt-eval <family> --hf-path <path> [--steps 10] [--keep-deleted]
+loongforge-issue-loop init --target ds-v4 --repo Zachary-wW/loongforge-plugin
+loongforge-issue-loop compare-phase --phase 0 --run-dir <run_dir>
+loongforge-issue-loop sync-issue --issue-spec <issue.yml> --dry-run
 ```
 
 ## Phase Agents
