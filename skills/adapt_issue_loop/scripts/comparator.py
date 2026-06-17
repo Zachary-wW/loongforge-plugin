@@ -60,6 +60,17 @@ def _limits_reached(stats: dict[str, Any]) -> bool:
     return stats["files_read"] >= MAX_FILES or stats["bytes_read"] >= MAX_TOTAL_BYTES
 
 
+def _merge_scan_stats(total: dict[str, Any], root_stats: dict[str, Any]) -> None:
+    total["files_read"] += root_stats["files_read"]
+    total["bytes_read"] += root_stats["bytes_read"]
+    total["skipped_count"] += root_stats["skipped_count"]
+    for reason, count in root_stats["skipped_by_reason"].items():
+        total["skipped_by_reason"][reason] = total["skipped_by_reason"].get(reason, 0) + count
+    remaining = MAX_SKIPPED_RECORDS - len(total["skipped"])
+    if remaining > 0:
+        total["skipped"].extend(root_stats["skipped"][:remaining])
+
+
 def _append_text_file(path: Path, chunks: list[str], stats: dict[str, Any]) -> None:
     if stats["files_read"] >= MAX_FILES:
         _record_skip(stats, path, "max_files_reached")
@@ -108,12 +119,13 @@ def _read_text_tree(roots: Iterable[Path], stats: dict[str, Any] | None = None) 
     chunks: list[str] = []
     for raw_root in roots:
         root = Path(raw_root)
-        if _limits_reached(scan_stats):
-            _record_skip(scan_stats, root, "scan_limit_reached")
-            break
+        root_stats = _new_scan_stats()
+        root_chunks: list[str] = []
         if root.is_file():
             if root.suffix in TEXT_SUFFIXES:
-                _append_text_file(root, chunks, scan_stats)
+                _append_text_file(root, root_chunks, root_stats)
+            chunks.extend(root_chunks)
+            _merge_scan_stats(scan_stats, root_stats)
             continue
         if not root.exists():
             continue
@@ -121,10 +133,10 @@ def _read_text_tree(roots: Iterable[Path], stats: dict[str, Any] | None = None) 
             current_dir = Path(dirpath)
             skipped_dirs = [name for name in dirnames if name in SKIP_DIR_NAMES]
             for name in sorted(skipped_dirs):
-                _record_skip(scan_stats, current_dir / name, "skipped_directory")
+                _record_skip(root_stats, current_dir / name, "skipped_directory")
             dirnames[:] = sorted(name for name in dirnames if name not in SKIP_DIR_NAMES)
 
-            if _limits_reached(scan_stats):
+            if _limits_reached(root_stats):
                 dirnames[:] = []
                 break
 
@@ -132,11 +144,13 @@ def _read_text_tree(roots: Iterable[Path], stats: dict[str, Any] | None = None) 
                 path = current_dir / filename
                 if path.suffix not in TEXT_SUFFIXES:
                     continue
-                if _limits_reached(scan_stats):
-                    _record_skip(scan_stats, path, "scan_limit_reached")
+                if _limits_reached(root_stats):
+                    _record_skip(root_stats, path, "scan_limit_reached")
                     dirnames[:] = []
                     break
-                _append_text_file(path, chunks, scan_stats)
+                _append_text_file(path, root_chunks, root_stats)
+        chunks.extend(root_chunks)
+        _merge_scan_stats(scan_stats, root_stats)
     return "\n".join(chunks)
 
 

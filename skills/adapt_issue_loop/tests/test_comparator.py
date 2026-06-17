@@ -170,6 +170,35 @@ def test_mixed_baseline_and_generated_missing_status_fails_with_issue_specs(tmp_
     ]
 
 
+def test_later_baseline_root_is_not_hidden_when_earlier_root_exhausts_scan_budget(tmp_path, monkeypatch):
+    first_baseline = tmp_path / "baseline" / "large_megatron"
+    second_baseline = tmp_path / "baseline" / "ds_v4_omni"
+    generated = tmp_path / "run" / "phases" / "phase0"
+    marker = "qk_rope_head_dim"
+    contract = {
+        "phase0": {
+            "goal": "Validate multi-root baseline scanning.",
+            "comparator_rules": [{"id": "phase0_mla", "markers": [marker]}],
+        }
+    }
+    monkeypatch.setattr(comparator, "MAX_FILE_BYTES", 1024)
+    monkeypatch.setattr(comparator, "MAX_TOTAL_BYTES", 64)
+
+    _write(first_baseline / "large.py", "x" * 64)
+    _write(second_baseline / "deepseek_v4_config.py", f"{marker}: 64\n")
+    _write(generated / "model_spec.yaml", f"{marker}: 64\n")
+
+    report = comparator.compare_phase_to_baseline(
+        phase=0,
+        generated_roots=[generated],
+        baseline_roots=[first_baseline, second_baseline],
+        goal_contract=contract,
+    )
+
+    assert report["status"] == "passed"
+    assert report["summary"] == {"baseline_missing": 0, "generated_missing": 0, "passed": 1}
+
+
 def test_large_files_are_skipped_and_smaller_marker_file_still_passes(tmp_path, monkeypatch):
     baseline = tmp_path / "baseline"
     generated = tmp_path / "run" / "phases" / "phase0"
