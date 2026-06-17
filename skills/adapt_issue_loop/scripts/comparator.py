@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -12,6 +13,13 @@ import yaml
 
 _HERE = Path(__file__).resolve().parent
 _ISSUE_SPEC_NAME = "issue_loop_issue_spec"
+
+TEXT_SUFFIXES = {".py", ".yaml", ".yml", ".json", ".md", ".sh", ".txt"}
+SKIP_DIR_NAMES = frozenset({"__pycache__", ".git", "node_modules", ".venv", "venv", "runs", "logs"})
+MAX_FILE_BYTES = 1_000_000
+MAX_TOTAL_BYTES = 5_000_000
+MAX_FILES = 1_000
+MAX_SKIPPED_RECORDS = 100
 
 
 def _load_issue_spec_module() -> ModuleType:
@@ -29,21 +37,106 @@ def _load_issue_spec_module() -> ModuleType:
 
 issue_spec = _load_issue_spec_module()
 
-TEXT_SUFFIXES = {".py", ".yaml", ".yml", ".json", ".md", ".sh", ".txt"}
+
+def _new_scan_stats() -> dict[str, Any]:
+    return {
+        "files_read": 0,
+        "bytes_read": 0,
+        "skipped_count": 0,
+        "skipped_by_reason": {},
+        "skipped": [],
+    }
 
 
-def _read_text_tree(roots: Iterable[Path]) -> str:
+def _record_skip(stats: dict[str, Any], path: Path, reason: str) -> None:
+    stats["skipped_count"] += 1
+    skipped_by_reason = stats["skipped_by_reason"]
+    skipped_by_reason[reason] = skipped_by_reason.get(reason, 0) + 1
+    if len(stats["skipped"]) < MAX_SKIPPED_RECORDS:
+        stats["skipped"].append({"path": str(path), "reason": reason})
+
+
+def _limits_reached(stats: dict[str, Any]) -> bool:
+    return stats["files_read"] >= MAX_FILES or stats["bytes_read"] >= MAX_TOTAL_BYTES
+
+
+def _append_text_file(path: Path, chunks: list[str], stats: dict[str, Any]) -> None:
+    if stats["files_read"] >= MAX_FILES:
+        _record_skip(stats, path, "max_files_reached")
+        return
+    if stats["bytes_read"] >= MAX_TOTAL_BYTES:
+        _record_skip(stats, path, "max_total_bytes_reached")
+        return
+
+    try:
+        stat_size = path.stat().st_size
+    except OSError:
+        _record_skip(stats, path, "stat_failed")
+        return
+
+    if stat_size > MAX_FILE_BYTES:
+        _record_skip(stats, path, "max_file_bytes_exceeded")
+        return
+
+    remaining_total = MAX_TOTAL_BYTES - stats["bytes_read"]
+    if stat_size > remaining_total:
+        _record_skip(stats, path, "max_total_bytes_exceeded")
+        return
+
+    max_read = min(MAX_FILE_BYTES, remaining_total)
+    try:
+        with path.open("rb") as handle:
+            data = handle.read(max_read + 1)
+    except OSError:
+        _record_skip(stats, path, "read_failed")
+        return
+
+    if len(data) > MAX_FILE_BYTES:
+        _record_skip(stats, path, "max_file_bytes_exceeded")
+        return
+    if len(data) > remaining_total:
+        _record_skip(stats, path, "max_total_bytes_exceeded")
+        return
+
+    chunks.append(data.decode("utf-8", errors="replace"))
+    stats["files_read"] += 1
+    stats["bytes_read"] += len(data)
+
+
+def _read_text_tree(roots: Iterable[Path], stats: dict[str, Any] | None = None) -> str:
+    scan_stats = stats if stats is not None else _new_scan_stats()
     chunks: list[str] = []
     for raw_root in roots:
         root = Path(raw_root)
-        if root.is_file() and root.suffix in TEXT_SUFFIXES:
-            chunks.append(root.read_text(encoding="utf-8", errors="replace"))
+        if _limits_reached(scan_stats):
+            _record_skip(scan_stats, root, "scan_limit_reached")
+            break
+        if root.is_file():
+            if root.suffix in TEXT_SUFFIXES:
+                _append_text_file(root, chunks, scan_stats)
             continue
         if not root.exists():
             continue
-        for path in sorted(root.rglob("*")):
-            if path.is_file() and path.suffix in TEXT_SUFFIXES:
-                chunks.append(path.read_text(encoding="utf-8", errors="replace"))
+        for dirpath, dirnames, filenames in os.walk(root):
+            current_dir = Path(dirpath)
+            skipped_dirs = [name for name in dirnames if name in SKIP_DIR_NAMES]
+            for name in sorted(skipped_dirs):
+                _record_skip(scan_stats, current_dir / name, "skipped_directory")
+            dirnames[:] = sorted(name for name in dirnames if name not in SKIP_DIR_NAMES)
+
+            if _limits_reached(scan_stats):
+                dirnames[:] = []
+                break
+
+            for filename in sorted(filenames):
+                path = current_dir / filename
+                if path.suffix not in TEXT_SUFFIXES:
+                    continue
+                if _limits_reached(scan_stats):
+                    _record_skip(scan_stats, path, "scan_limit_reached")
+                    dirnames[:] = []
+                    break
+                _append_text_file(path, chunks, scan_stats)
     return "\n".join(chunks)
 
 
@@ -52,10 +145,17 @@ def _phase_key(phase: int) -> str:
 
 
 def _rules_for_phase(goal_contract: dict[str, Any], phase: int) -> list[dict[str, Any]]:
-    phase_contract = goal_contract.get(_phase_key(phase)) or {}
-    rules = phase_contract.get("comparator_rules") or []
+    phase_key = _phase_key(phase)
+    phase_contract = goal_contract.get(phase_key)
+    if not isinstance(phase_contract, dict):
+        raise ValueError(f"{phase_key}.comparator_rules is required and must be a non-empty list")
+    if "comparator_rules" not in phase_contract:
+        raise ValueError(f"{phase_key}.comparator_rules is required and must be a non-empty list")
+    rules = phase_contract["comparator_rules"]
     if not isinstance(rules, list):
-        raise ValueError(f"phase{phase}.comparator_rules must be a list")
+        raise ValueError(f"{phase_key}.comparator_rules must be a list")
+    if not rules:
+        raise ValueError(f"{phase_key}.comparator_rules must be a non-empty list")
     return rules
 
 
@@ -109,8 +209,11 @@ def compare_phase_to_baseline(
             "summary": {"baseline_missing": 0, "generated_missing": 0, "passed": 0},
         }
 
-    baseline_text = _read_text_tree(baseline_roots)
-    generated_text = _read_text_tree(generated_roots)
+    rules = _rules_for_phase(goal_contract, phase)
+    baseline_scan = _new_scan_stats()
+    generated_scan = _new_scan_stats()
+    baseline_text = _read_text_tree(baseline_roots, baseline_scan)
+    generated_text = _read_text_tree(generated_roots, generated_scan)
     checks: list[dict[str, Any]] = []
     issue_specs: list[dict[str, Any]] = []
     baseline_missing = 0
@@ -118,7 +221,7 @@ def compare_phase_to_baseline(
     passed = 0
     goal = _goal_for_phase(goal_contract, phase)
 
-    for rule in _rules_for_phase(goal_contract, phase):
+    for rule in rules:
         rule_id = rule.get("id") or f"phase{phase}_rule"
         markers = rule.get("markers") or []
         if not isinstance(markers, list):
@@ -152,10 +255,10 @@ def compare_phase_to_baseline(
                     "message": f"Marker `{marker}` exists in baseline and generated roots.",
                 })
 
-    if baseline_missing:
-        status = "baseline_unavailable"
-    elif generated_missing:
+    if generated_missing:
         status = "failed"
+    elif baseline_missing:
+        status = "baseline_unavailable"
     else:
         status = "passed"
 
@@ -171,6 +274,13 @@ def compare_phase_to_baseline(
             "baseline_missing": baseline_missing,
             "generated_missing": generated_missing,
             "passed": passed,
+        },
+        "scan_limits": {
+            "max_file_bytes": MAX_FILE_BYTES,
+            "max_total_bytes": MAX_TOTAL_BYTES,
+            "max_files": MAX_FILES,
+            "baseline": baseline_scan,
+            "generated": generated_scan,
         },
     }
 
