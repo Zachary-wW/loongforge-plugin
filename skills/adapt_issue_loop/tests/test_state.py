@@ -14,8 +14,16 @@ SPEC.loader.exec_module(state)
 def test_default_state_records_ds_v4_baseline():
     data = state.default_state(repo="Zachary-wW/loongforge-plugin")
     assert data["target_case"] == "ds_v4"
-    assert data["baseline"]["megatron"]["commit"] == "12713af0"
-    assert data["baseline"]["omni"]["commit"] == "83e71867"
+    assert data["inputs"]["base_code"]["megatron"]["path"] == "~/workspace/agent_skills/tmp/baidu/hac-aiacc/AIAK-Megatron"
+    assert data["inputs"]["base_code"]["megatron"]["commit"] == "12713af0"
+    assert data["inputs"]["base_code"]["omni"]["path"] == "~/workspace/agent_skills/tmp/baidu/hac-aiacc/AIAK-Training-Omni"
+    assert data["inputs"]["base_code"]["omni"]["commit"] == "04500dd5"
+    assert data["baseline"]["megatron"]["path"] == "~/workspace/debug/0616/baidu/hac-aiacc/AIAK-Megatron"
+    assert data["baseline"]["megatron"]["commit"] == "e5b77017"
+    assert data["baseline"]["omni"]["path"] == "~/workspace/debug/0616/baidu/hac-aiacc/AIAK-Training-Omni"
+    assert data["baseline"]["omni"]["commit"] == "3a16d140"
+    assert data["inputs"]["hf_checkpoint_and_tokenizer_url"] == "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-Base"
+    assert "checkpoint weights" in data["inputs"]["large_artifact_policy"]
     assert data["scope"]["phases_enabled"] == [0, 1, 2]
     assert data["scope"]["phases_deferred"][3].startswith("Mac no GPU")
     assert data["merge_policy"] == "auto_after_review_and_verification"

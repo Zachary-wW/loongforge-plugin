@@ -10,12 +10,19 @@ Build a local-first, issue-driven iteration loop for `/loongforge:adapt`.
 
 The loop runs adaptation phases locally. Whenever a phase, checker, reviewer, or downstream phase finds an actionable problem that blocks the current goal, the system creates or updates a GitHub Issue. A repair agent reads that issue, fixes the plugin locally on an issue-scoped branch, opens a PR, and an independent review/verification agent checks whether the issue is actually resolved. If all gates pass, the PR is merged automatically. The phase is then rerun. This repeats until the enabled phase goals are satisfied or the loop reaches a bounded human handoff state.
 
-The first target case is DS V4. Baseline groundtruth comes from the latest local commits of:
+The first target case is DS V4. The original unadapted input code comes from:
 
-- `../baidu/hac-aiacc/AIAK-Megatron/` at `12713af0`
-- `../baidu/hac-aiacc/AIAK-Training-Omni/` at `83e71867`
+- `~/workspace/agent_skills/tmp/baidu/hac-aiacc/AIAK-Megatron/` at `12713af0`
+- `~/workspace/agent_skills/tmp/baidu/hac-aiacc/AIAK-Training-Omni/` at `04500dd5`
 
-The local machine is a Mac without GPU. Therefore the MVP validates Phase 0, Phase 1, and Phase 2 through static artifact/code/conversion comparison against baseline code, not runtime GPU loss or training checks. In this mode, the loop writes separate static-readiness reports and must not claim GPU-only validators passed solely because static comparison passed. Phase 3 and Phase 4 are deferred for this MVP.
+Baseline groundtruth for static comparison is the already-adapted DS V4 code at:
+
+- `~/workspace/debug/0616/baidu/hac-aiacc/AIAK-Megatron/` at `e5b77017`
+- `~/workspace/debug/0616/baidu/hac-aiacc/AIAK-Training-Omni/` at `3a16d140`
+
+The checkpoint/tokenizer input is the reference URL `https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-Base`; the local no-GPU MVP must not download large checkpoint artifacts. Reference code comes from HuggingFace DeepSeek V4 and NVIDIA Megatron-LM issue #4468.
+
+The local machine is a Mac without GPU. Therefore the MVP validates Phase 0, Phase 1, and Phase 2 through static artifact/code/conversion comparison against groundtruth code, not runtime GPU loss or training checks. In this mode, the loop writes separate static-readiness reports and must not claim GPU-only validators passed solely because static comparison passed. Phase 3 and Phase 4 are deferred for this MVP.
 
 ## 2. Non-goals
 
@@ -121,12 +128,27 @@ repo: Zachary-wW/loongforge-plugin
 mode: local_execution_github_issues
 target_case: ds_v4
 baseline:
+  description: "Groundtruth code that generated artifacts should match structurally."
   megatron:
-    path: ../baidu/hac-aiacc/AIAK-Megatron
-    commit: 12713af0
+    path: ~/workspace/debug/0616/baidu/hac-aiacc/AIAK-Megatron
+    commit: e5b77017
   omni:
-    path: ../baidu/hac-aiacc/AIAK-Training-Omni
-    commit: 83e71867
+    path: ~/workspace/debug/0616/baidu/hac-aiacc/AIAK-Training-Omni
+    commit: 3a16d140
+inputs:
+  base_code:
+    description: "Original unadapted Megatron/Omni code used as the adaptation target input."
+    megatron:
+      path: ~/workspace/agent_skills/tmp/baidu/hac-aiacc/AIAK-Megatron
+      commit: 12713af0
+    omni:
+      path: ~/workspace/agent_skills/tmp/baidu/hac-aiacc/AIAK-Training-Omni
+      commit: 04500dd5
+  hf_checkpoint_and_tokenizer_url: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-Base
+  reference_code_urls:
+    - https://github.com/huggingface/transformers/tree/main/src/transformers/models/deepseek_v4
+    - https://github.com/NVIDIA/Megatron-LM/issues/4468
+  large_artifact_policy: "Do not download checkpoint weights or other large artifacts; use metadata/source references only."
 scope:
   phases_enabled: [0, 1, 2]
   phases_deferred:

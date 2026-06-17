@@ -24,7 +24,9 @@ loongforge-issue-loop sync-issue --issue-spec <issue.yml> --dry-run
 
 ## Issue-Driven Adapt Loop
 
-`/loongforge:adapt_issue_loop` is a local-first iteration loop for Phase 0-2 DS V4 adaptation on a Mac without GPU. It compares generated phase artifacts/code/conversion rules with baseline code, writes IssueSpec files, and can create or update GitHub Issues.
+`/loongforge:adapt_issue_loop` is a local-first iteration loop for Phase 0-2 DS V4 adaptation on a Mac without GPU. It compares generated phase artifacts/code/conversion rules with DS V4 groundtruth code, writes IssueSpec files, and can create or update GitHub Issues.
+
+For DS V4, the original unadapted input code lives under `~/workspace/agent_skills/tmp/baidu/hac-aiacc/`. The static comparator groundtruth is the already-adapted code under `~/workspace/debug/0616/baidu/hac-aiacc/`; generated code should stay structurally close to that groundtruth.
 
 Dry-run example:
 
@@ -34,9 +36,11 @@ loongforge-issue-loop run-dry \
   --repo Zachary-wW/loongforge-plugin \
   --phase 0 \
   --generated-root <run_dir>/phases/phase0 \
-  --baseline-root ../baidu/hac-aiacc/AIAK-Megatron \
-  --baseline-root ../baidu/hac-aiacc/AIAK-Training-Omni
+  --baseline-root ~/workspace/debug/0616/baidu/hac-aiacc/AIAK-Megatron \
+  --baseline-root ~/workspace/debug/0616/baidu/hac-aiacc/AIAK-Training-Omni
 ```
+
+For DS V4, treat `https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-Base` as the checkpoint/tokenizer reference URL only. Do not download the large checkpoint weights for the local no-GPU MVP; use static metadata/source references and the HF/Megatron reference URLs instead.
 
 Real issue sync example:
 

@@ -52,7 +52,13 @@ def _create_issue(repo: str, spec: issue_spec.IssueSpec, body: str) -> str:
     args = ["issue", "create", "--repo", repo, "--title", spec.title, "--body", body]
     for label in spec.labels:
         args.extend(["--label", label])
-    result = _run_gh(args)
+    try:
+        result = _run_gh(args)
+    except RuntimeError as exc:
+        if "could not add label" not in str(exc):
+            raise
+        fallback = ["issue", "create", "--repo", repo, "--title", spec.title, "--body", body]
+        result = _run_gh(fallback)
     return result.stdout.strip()
 
 

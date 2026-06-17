@@ -12,10 +12,23 @@ import yaml
 STATE_REL_DIR = Path(".loongforge") / "issue-loop"
 DEFAULT_REPO = "Zachary-wW/loongforge-plugin"
 DEFAULT_TARGET = "ds_v4"
-DEFAULT_MEGATRON_PATH = "../baidu/hac-aiacc/AIAK-Megatron"
-DEFAULT_MEGATRON_COMMIT = "12713af0"
-DEFAULT_OMNI_PATH = "../baidu/hac-aiacc/AIAK-Training-Omni"
-DEFAULT_OMNI_COMMIT = "83e71867"
+DEFAULT_INPUT_MEGATRON_PATH = "~/workspace/agent_skills/tmp/baidu/hac-aiacc/AIAK-Megatron"
+DEFAULT_INPUT_MEGATRON_COMMIT = "12713af0"
+DEFAULT_INPUT_OMNI_PATH = "~/workspace/agent_skills/tmp/baidu/hac-aiacc/AIAK-Training-Omni"
+DEFAULT_INPUT_OMNI_COMMIT = "04500dd5"
+DEFAULT_GROUNDTRUTH_MEGATRON_PATH = "~/workspace/debug/0616/baidu/hac-aiacc/AIAK-Megatron"
+DEFAULT_GROUNDTRUTH_MEGATRON_COMMIT = "e5b77017"
+DEFAULT_GROUNDTRUTH_OMNI_PATH = "~/workspace/debug/0616/baidu/hac-aiacc/AIAK-Training-Omni"
+DEFAULT_GROUNDTRUTH_OMNI_COMMIT = "3a16d140"
+DEFAULT_HF_CHECKPOINT_AND_TOKENIZER_URL = "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-Base"
+DEFAULT_REFERENCE_CODE_URLS = [
+    "https://github.com/huggingface/transformers/tree/main/src/transformers/models/deepseek_v4",
+    "https://github.com/NVIDIA/Megatron-LM/issues/4468",
+]
+DEFAULT_LARGE_ARTIFACT_POLICY = (
+    "Do not download checkpoint weights or other large artifacts; "
+    "use metadata/source references only."
+)
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -50,14 +63,31 @@ def default_state(repo: str = DEFAULT_REPO) -> dict[str, Any]:
         "mode": "local_execution_github_issues",
         "target_case": DEFAULT_TARGET,
         "baseline": {
+            "description": "Groundtruth code that generated artifacts should match structurally.",
             "megatron": {
-                "path": DEFAULT_MEGATRON_PATH,
-                "commit": DEFAULT_MEGATRON_COMMIT,
+                "path": DEFAULT_GROUNDTRUTH_MEGATRON_PATH,
+                "commit": DEFAULT_GROUNDTRUTH_MEGATRON_COMMIT,
             },
             "omni": {
-                "path": DEFAULT_OMNI_PATH,
-                "commit": DEFAULT_OMNI_COMMIT,
+                "path": DEFAULT_GROUNDTRUTH_OMNI_PATH,
+                "commit": DEFAULT_GROUNDTRUTH_OMNI_COMMIT,
             },
+        },
+        "inputs": {
+            "base_code": {
+                "description": "Original unadapted Megatron/Omni code used as the adaptation target input.",
+                "megatron": {
+                    "path": DEFAULT_INPUT_MEGATRON_PATH,
+                    "commit": DEFAULT_INPUT_MEGATRON_COMMIT,
+                },
+                "omni": {
+                    "path": DEFAULT_INPUT_OMNI_PATH,
+                    "commit": DEFAULT_INPUT_OMNI_COMMIT,
+                },
+            },
+            "hf_checkpoint_and_tokenizer_url": DEFAULT_HF_CHECKPOINT_AND_TOKENIZER_URL,
+            "reference_code_urls": list(DEFAULT_REFERENCE_CODE_URLS),
+            "large_artifact_policy": DEFAULT_LARGE_ARTIFACT_POLICY,
         },
         "scope": {
             "phases_enabled": [0, 1, 2],

@@ -98,6 +98,29 @@ def test_sync_issue_apply_creates_when_no_existing_issue(monkeypatch):
     ]
 
 
+def test_sync_issue_apply_creates_without_labels_when_repo_lacks_labels(monkeypatch):
+    spec = _spec()
+    calls = []
+
+    def fake_run(cmd, *, check, capture_output, text):
+        calls.append(cmd)
+        if cmd[:3] == ["gh", "issue", "list"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
+        if cmd[:3] == ["gh", "issue", "create"] and "--label" in cmd:
+            raise subprocess.CalledProcessError(1, cmd, stderr="could not add label: 'loongforge-adapt' not found")
+        if cmd[:3] == ["gh", "issue", "create"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="https://github.com/owner/repo/issues/43\n", stderr="")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(github.subprocess, "run", fake_run)
+
+    result = github.sync_issue("owner/repo", spec, dry_run=False)
+
+    assert result == {"mode": "apply", "action": "create", "issue_url": "https://github.com/owner/repo/issues/43"}
+    assert "--label" in calls[1]
+    assert calls[2] == ["gh", "issue", "create", "--repo", "owner/repo", "--title", spec.title, "--body", calls[1][8]]
+
+
 def test_sync_issue_apply_comments_when_existing_issue_found(monkeypatch):
     spec = _spec()
     calls = []

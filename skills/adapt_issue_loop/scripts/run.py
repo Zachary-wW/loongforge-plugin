@@ -66,7 +66,7 @@ def _parse_phase(value: str | int | None) -> int:
 def _paths(values: list[str] | None, option_name: str) -> list[Path]:
     if not values:
         raise ValueError(f"{option_name} is required")
-    return [Path(value) for value in values]
+    return [Path(value).expanduser() for value in values]
 
 
 def _default_plugin_root(value: str | None) -> Path:
@@ -88,7 +88,7 @@ def _baseline_roots_from_state(loop_state: Mapping[str, Any]) -> list[Path]:
     roots: list[Path] = []
     for item in baseline.values():
         if isinstance(item, Mapping) and item.get("path"):
-            roots.append(Path(str(item["path"])))
+            roots.append(Path(str(item["path"])).expanduser())
     return roots
 
 

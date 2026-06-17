@@ -32,14 +32,33 @@ The MVP runs on a Mac no GPU environment. It validates Phase 0-2 only:
 
 Phase 3 and Phase 4 are deferred in this MVP and must not be reported as passed.
 
-## Baseline Groundtruth
+## Inputs and Groundtruth
 
-Default target case `ds-v4` uses:
+Default target case `ds-v4` uses this original, unadapted base code as the adaptation target input:
 
 ```text
-../baidu/hac-aiacc/AIAK-Megatron      @ 12713af0
-../baidu/hac-aiacc/AIAK-Training-Omni @ 83e71867
+~/workspace/agent_skills/tmp/baidu/hac-aiacc/AIAK-Megatron      @ 12713af0
+~/workspace/agent_skills/tmp/baidu/hac-aiacc/AIAK-Training-Omni @ 04500dd5
 ```
+
+The static comparator groundtruth is the already-adapted DS V4 code:
+
+```text
+~/workspace/debug/0616/baidu/hac-aiacc/AIAK-Megatron      @ e5b77017
+~/workspace/debug/0616/baidu/hac-aiacc/AIAK-Training-Omni @ 3a16d140
+```
+
+Generated code should stay structurally close to this groundtruth while preserving compatibility with the original base code layout.
+
+Additional DS V4 inputs are references only:
+
+```text
+checkpoint/tokenizer: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-Base
+HF code:              https://github.com/huggingface/transformers/tree/main/src/transformers/models/deepseek_v4
+Megatron tracker:     https://github.com/NVIDIA/Megatron-LM/issues/4468
+```
+
+Do not download checkpoint weights or other large artifacts in the local no-GPU MVP; use metadata, source paths, and static references only.
 
 ## Orchestration Rules
 
