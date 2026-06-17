@@ -26,12 +26,12 @@ def evaluate_merge_gate(inputs: Mapping[str, Any]) -> dict[str, Any]:
     """
     blocking_reasons: list[str] = []
 
-    if inputs.get("review_verdict") != "approved":
-        blocking_reasons.append("review_verdict")
-
     for gate in BOOLEAN_GATES:
         if inputs.get(gate) is not True:
             blocking_reasons.append(gate)
+
+    if inputs.get("review_verdict") != "approved":
+        blocking_reasons.append("review_verdict")
 
     if inputs.get("gpu_gate_blocking") is True:
         blocking_reasons.append("gpu_gate_blocking")

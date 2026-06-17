@@ -70,3 +70,20 @@ def test_merge_gate_reports_failed_booleans_in_gate_order():
         "working_tree_clean",
     ]
     assert result["mode"] == "no_gpu_static_validation"
+
+
+def test_merge_gate_reports_boolean_review_and_gpu_reasons_in_plan_order():
+    inputs = _passing_inputs()
+    inputs["plugin_tests_passed"] = False
+    inputs["review_verdict"] = "changes_requested"
+    inputs["gpu_gate_blocking"] = True
+
+    result = verification.evaluate_merge_gate(inputs)
+
+    assert result["status"] == "blocked"
+    assert result["blocking_reasons"] == [
+        "plugin_tests_passed",
+        "review_verdict",
+        "gpu_gate_blocking",
+    ]
+    assert result["mode"] == "no_gpu_static_validation"
