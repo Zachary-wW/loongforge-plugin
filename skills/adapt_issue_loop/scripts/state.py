@@ -162,7 +162,7 @@ def default_goal_contract() -> dict[str, Any]:
                 "No runtime GPU gate is required for MVP pass.",
             ],
             "comparator_rules": [
-                {"id": "phase2_mla_tensors", "markers": ["q_lora", "kv_lora", "qk_rope_head_dim"]},
+                {"id": "phase2_mla_tensors", "markers": ["attention.q_down", "attention.q_up", "attention.kv_down"]},
                 {"id": "phase2_moe_tensors", "markers": ["experts", "router", "shared"]},
                 {"id": "phase2_mtp_tensors", "markers": ["mtp"]},
             ],
