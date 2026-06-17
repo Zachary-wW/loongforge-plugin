@@ -2,22 +2,13 @@
 from __future__ import annotations
 
 import re
-import sys
-import types
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-
-# Tests load this file with importlib.util.module_from_spec without inserting the
-# module into sys.modules first. Python 3.12 dataclasses with postponed
-# annotations consult sys.modules during class processing, so register a module
-# shell when needed.
-if __name__ not in sys.modules:
-    sys.modules[__name__] = types.ModuleType(__name__)
-sys.modules[__name__].__dict__.update(globals())
 
 _VALID_KINDS = {
     "bug",
@@ -28,6 +19,7 @@ _VALID_KINDS = {
     "goal-contract-gap",
 }
 _VALID_SEVERITIES = {"blocker", "high", "medium", "low"}
+_DEDUP_KEY_RE = re.compile(r"^phase\d:[a-z0-9_]+:[a-z0-9_]+$")
 
 
 def slugify(value: str) -> str:
@@ -61,8 +53,10 @@ class IssueSpec:
             raise ValueError(f"invalid issue kind: {self.kind}")
         if self.severity not in _VALID_SEVERITIES:
             raise ValueError(f"invalid issue severity: {self.severity}")
-        if not self.dedup_key:
-            raise ValueError("dedup_key is required")
+        validate_dedup_key(self.dedup_key)
+        self.reproduction = _validate_reproduction(self.reproduction)
+        self.acceptance = _validate_string_list(self.acceptance, "acceptance")
+        self.labels = _validate_string_list(self.labels, "labels")
         if not self.acceptance:
             raise ValueError("acceptance checklist is required")
 
@@ -71,6 +65,8 @@ class IssueSpec:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "IssueSpec":
+        if not isinstance(data, Mapping):
+            raise ValueError("issue spec must be a mapping")
         return cls(
             dedup_key=data["dedup_key"],
             phase=int(data["phase"]),
@@ -80,9 +76,9 @@ class IssueSpec:
             goal_blocked=data["goal_blocked"],
             observed=data["observed"],
             expected=data["expected"],
-            reproduction=data.get("reproduction") or {"commands": [], "artifacts": []},
-            acceptance=list(data.get("acceptance") or []),
-            labels=list(data.get("labels") or []),
+            reproduction=_validate_reproduction(data.get("reproduction", {})),
+            acceptance=_validate_string_list(data.get("acceptance", []), "acceptance"),
+            labels=_validate_string_list(data.get("labels", []), "labels"),
         )
 
     def render_markdown(self) -> str:
@@ -109,12 +105,12 @@ class IssueSpec:
             "### Commands",
         ]
         if commands:
-            lines.extend(f"- `{cmd}`" for cmd in commands)
+            lines.extend(_render_code_blocks(commands))
         else:
             lines.append("- No command-level reproducer recorded; use artifact-level evidence below.")
         lines.extend(["", "### Artifacts"])
         if artifacts:
-            lines.extend(f"- `{artifact}`" for artifact in artifacts)
+            lines.extend(_render_code_blocks(artifacts))
         else:
             lines.append("- No artifacts recorded.")
         lines.extend(["", "## Acceptance checklist"])
@@ -134,7 +130,42 @@ class IssueSpec:
         return "\n".join(lines) + "\n"
 
 
+def validate_dedup_key(dedup_key: str) -> None:
+    if not isinstance(dedup_key, str) or not _DEDUP_KEY_RE.fullmatch(dedup_key):
+        raise ValueError("dedup_key must match phase<digit>:<slug>:<slug>")
+
+
+def _validate_string_list(value: Any, field_name: str) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list of strings")
+    if not all(isinstance(item, str) for item in value):
+        raise ValueError(f"{field_name} must be a list of strings")
+    return value
+
+
+def _validate_reproduction(value: Any) -> dict[str, list[str]]:
+    if not isinstance(value, Mapping):
+        raise ValueError("reproduction must be a mapping")
+    commands = _validate_string_list(value.get("commands", []), "reproduction.commands")
+    artifacts = _validate_string_list(value.get("artifacts", []), "reproduction.artifacts")
+    return {"commands": commands, "artifacts": artifacts}
+
+
+def _render_code_blocks(values: list[str]) -> list[str]:
+    lines: list[str] = []
+    for value in values:
+        fence = _fence_for(value)
+        lines.extend(["-", fence, value, fence])
+    return lines
+
+
+def _fence_for(value: str) -> str:
+    longest_run = max((len(match.group(0)) for match in re.finditer(r"`+", value)), default=0)
+    return "`" * max(3, longest_run + 1)
+
+
 def issue_spec_filename(spec: IssueSpec) -> str:
+    validate_dedup_key(spec.dedup_key)
     safe = spec.dedup_key.replace(":", "-")
     return f"{safe}.yml"
 
@@ -147,10 +178,10 @@ def write_issue_spec(directory: Path, spec: IssueSpec) -> Path:
 
 
 def load_issue_spec(path: Path) -> IssueSpec:
-    data = yaml.safe_load(path.read_text())
+    try:
+        data = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid issue spec YAML: {path}") from exc
     if not isinstance(data, dict):
         raise ValueError(f"Invalid issue spec YAML: {path}")
     return IssueSpec.from_dict(data)
-
-
-sys.modules[__name__].__dict__.update(globals())
