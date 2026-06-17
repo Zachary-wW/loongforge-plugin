@@ -156,6 +156,16 @@ def _rules_for_phase(goal_contract: dict[str, Any], phase: int) -> list[dict[str
         raise ValueError(f"{phase_key}.comparator_rules must be a list")
     if not rules:
         raise ValueError(f"{phase_key}.comparator_rules must be a non-empty list")
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            raise ValueError(f"{phase_key}.comparator_rules[{index}].markers is required for comparator rule")
+        rule_id = rule.get("id") or f"{phase_key}_rule_{index}"
+        markers = rule.get("markers")
+        if not isinstance(markers, list) or not markers:
+            raise ValueError(f"{rule_id}.markers must be a non-empty list")
+        for marker in markers:
+            if not isinstance(marker, str) or marker == "":
+                raise ValueError(f"{rule_id}.markers must contain only non-empty strings")
     return rules
 
 

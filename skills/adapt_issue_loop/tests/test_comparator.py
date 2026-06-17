@@ -108,6 +108,39 @@ def test_missing_or_empty_comparator_rules_raise_value_error(tmp_path, goal_cont
         )
 
 
+def test_comparator_rule_with_empty_markers_raises_value_error(tmp_path):
+    baseline = tmp_path / "baseline"
+    generated = tmp_path / "generated"
+    _write(baseline / "baseline.py", "marker = True\n")
+    _write(generated / "generated.py", "marker = True\n")
+    goal_contract = {"phase0": {"comparator_rules": [{"id": "empty", "markers": []}]}}
+
+    with pytest.raises(ValueError, match="empty.*markers"):
+        comparator.compare_phase_to_baseline(
+            phase=0,
+            generated_roots=[generated],
+            baseline_roots=[baseline],
+            goal_contract=goal_contract,
+        )
+
+
+@pytest.mark.parametrize("markers", [["valid", ""], ["valid", 3]])
+def test_comparator_rule_with_invalid_marker_values_raises_value_error(tmp_path, markers):
+    baseline = tmp_path / "baseline"
+    generated = tmp_path / "generated"
+    _write(baseline / "baseline.py", "marker = True\n")
+    _write(generated / "generated.py", "marker = True\n")
+    goal_contract = {"phase0": {"comparator_rules": [{"id": "invalid", "markers": markers}]}}
+
+    with pytest.raises(ValueError, match="invalid.*markers"):
+        comparator.compare_phase_to_baseline(
+            phase=0,
+            generated_roots=[generated],
+            baseline_roots=[baseline],
+            goal_contract=goal_contract,
+        )
+
+
 def test_mixed_baseline_and_generated_missing_status_fails_with_issue_specs(tmp_path):
     baseline = tmp_path / "baseline"
     generated = tmp_path / "run" / "phases" / "phase0"
