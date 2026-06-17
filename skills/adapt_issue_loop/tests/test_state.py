@@ -40,6 +40,16 @@ def test_default_goal_contract_has_phase0_1_2_and_deferred_runtime():
     assert contract["phase4"]["status"] == "deferred"
 
 
+def test_default_phase2_mla_markers_match_conversion_baseline_names():
+    contract = state.default_goal_contract()
+    mla_rules = [rule for rule in contract["phase2"]["comparator_rules"] if rule["id"] == "phase2_mla_tensors"]
+
+    assert mla_rules == [
+        {"id": "phase2_mla_tensors", "markers": ["attention.q_down", "attention.q_up", "attention.kv_down"]}
+    ]
+
+
+
 def test_init_loop_state_writes_state_and_contract(tmp_path):
     state_dir = state.init_loop_state(
         plugin_root=tmp_path,
