@@ -184,7 +184,9 @@ def _cmd_run_dry(args: argparse.Namespace, parser: argparse.ArgumentParser) -> i
             "state_dir": str(state_dir),
             "report": str(report_path),
             "comparator_report": str(report_path),
+            "status": report.get("status"),
             "issue_specs": [str(path) for path, _ in written],
+            "dry_sync": sync_payloads,
             "sync_payloads": sync_payloads,
         }
     )

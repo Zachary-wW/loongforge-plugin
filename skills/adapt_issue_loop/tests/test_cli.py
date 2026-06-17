@@ -203,3 +203,35 @@ def test_run_dry_initializes_state_writes_report_and_returns_dry_sync_payloads(t
     assert report.exists()
     assert len(payload["issue_specs"]) == 1
     assert payload["sync_payloads"][0]["mode"] == "dry-run"
+
+
+def test_cli_run_dry_creates_report_issue_spec_and_dry_sync_payload(tmp_path):
+    baseline = tmp_path / "baseline"
+    generated = tmp_path / "generated"
+    _write(
+        baseline / "deepseek_v4_config.py",
+        "mtp_num_layers = 1\nqk_rope_head_dim = 64\no_lora_rank = 1024\n",
+    )
+    _write(generated / "model_spec.yaml", "qk_rope_head_dim: 64\no_lora_rank: 1024\n")
+
+    result = _run_cli(
+        "run-dry",
+        "--plugin-root",
+        str(tmp_path),
+        "--repo",
+        "owner/repo",
+        "--phase",
+        "0",
+        "--generated-root",
+        str(generated),
+        "--baseline-root",
+        str(baseline),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "failed"
+    assert Path(payload["report"]).exists()
+    assert len(payload["issue_specs"]) == 1
+    assert payload["dry_sync"][0]["mode"] == "dry-run"
+    assert payload["dry_sync"][0]["action"] == "create"

@@ -65,3 +65,35 @@ Default target case `ds-v4` uses:
 
 The Python scripts do deterministic transforms only. They do not dispatch agents.
 The main Claude session dispatches repair/review agents using the GitHub Issue and PR as task boundaries.
+
+## Repair PR Loop
+
+For each synced GitHub Issue:
+
+1. Fetch the issue body and linked IssueSpec.
+2. Create branch `agent/issue-<number>-<short-slug>`.
+3. Prove the issue by rerunning the comparator command or by citing artifact-level evidence.
+4. Modify only plugin files required by the issue.
+5. Run targeted tests and the relevant comparator.
+6. Commit with `Fixes #<number>` or `Closes #<number>` in the PR body.
+7. Push the branch and create a PR.
+
+## Review and Merge Gate
+
+Review agent must evaluate:
+
+- PR scope matches exactly one linked issue.
+- Issue acceptance checklist passes.
+- Plugin tests pass.
+- Phase artifact gate passes when an artifact exists.
+- DS V4 static comparator passes.
+- Downstream readiness is not blocked.
+- No GPU-only gate is treated as a local blocking gate.
+
+Before merge, write a gate input YAML and run:
+
+```bash
+loongforge-issue-loop verify-merge-gate --inputs <gate.yml>
+```
+
+Only merge when the command exits 0 and review verdict is `approved`.

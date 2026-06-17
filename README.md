@@ -22,6 +22,31 @@ loongforge-issue-loop compare-phase --phase 0 --run-dir <run_dir>
 loongforge-issue-loop sync-issue --issue-spec <issue.yml> --dry-run
 ```
 
+## Issue-Driven Adapt Loop
+
+`/loongforge:adapt_issue_loop` is a local-first iteration loop for Phase 0-2 DS V4 adaptation on a Mac without GPU. It compares generated phase artifacts/code/conversion rules with baseline code, writes IssueSpec files, and can create or update GitHub Issues.
+
+Dry-run example:
+
+```bash
+loongforge-issue-loop run-dry \
+  --plugin-root . \
+  --repo Zachary-wW/loongforge-plugin \
+  --phase 0 \
+  --generated-root <run_dir>/phases/phase0 \
+  --baseline-root ../baidu/hac-aiacc/AIAK-Megatron \
+  --baseline-root ../baidu/hac-aiacc/AIAK-Training-Omni
+```
+
+Real issue sync example:
+
+```bash
+loongforge-issue-loop sync-issue \
+  --repo Zachary-wW/loongforge-plugin \
+  --issue-spec .loongforge/issue-loop/issue_specs/<issue>.yml \
+  --apply
+```
+
 ## Phase Agents
 
 The plugin provides phase-specific agents:
