@@ -9,7 +9,7 @@
 LoongForge Plugin（尤其是 `/loongforge:adapt_issue_loop`）已经是一个非常典型的 loop engineering 项目：
 
 - 你已经把"提示模型"换成了"设计一个自运行系统"——`adapt → compare-phase → issue-from-report → sync-issue → repair → review → verify-merge-gate → 再跑 phase`。
-- Addy 文章里提的"五件套 + 记忆"——Skills、Sub-agents、Worktrees、Plugins/Connectors、Automations、State/Memory——本项目已经命中了 **5/6**，只差自动调度（Automations）和更系统的"独立打分员"。
+- Addy 文章里提的"五件套 + 记忆"——Skills、Sub-agents、Worktrees、Plugins/Connectors、Automations、State/Memory——本项目 **4/6 完整命中、2/6 部分命中、1/6 缺位**（详见 §1 表）。完整缺位的是自动调度（Automations）；部分命中的是 Worktrees（用 git 分支替代）和 Connectors（仅 GitHub，无 CI/IM 通道）。再叠加一条结构性短板：缺一个系统性的"独立打分员"。
 
 但仍有 4 个明显的提升点，按优先级是：
 
