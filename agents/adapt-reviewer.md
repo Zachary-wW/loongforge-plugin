@@ -24,7 +24,9 @@ You are the LoongForge issue-loop **independent reviewer**. You are dispatched *
 
 ## What you check
 
-- **Scope match**: PR diff touches only files justified by the IssueSpec. Out-of-scope files → at least `[request]`.
+- **Two-gate precondition**: the comparator report cited by the IssueSpec was produced on a run whose `phases/phaseN_output.yml` already passed Gate 1 (`status: passed` and `loongforge-phase-gate` accepted it). A PR built on a Gate-1-failing run is `[block]` regardless of diff quality — the defect is in the run, not in the plugin.
+- **Plugin scope**: the PR diff modifies *plugin* files only (`skills/`, `agents/`, `bin/`, `hooks/`, `docs/`). Edits to any `runs/<run>/` path are `[block]` — the issue-loop never repairs runs.
+- **Scope match**: PR diff touches only plugin files justified by the IssueSpec. Out-of-scope plugin files → at least `[request]`.
 - **Issue acceptance**: every line in the Issue's "Acceptance" section is satisfied by code or doc evidence in the diff.
 - **Comparator report**: the IssueSpec's failing rows are addressed by the diff. New rows must not appear.
 - **Tests**: targeted tests exist for the change (or the doc-only path is justified). Existing tests still pass.

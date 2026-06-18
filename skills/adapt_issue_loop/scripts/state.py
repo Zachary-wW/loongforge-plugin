@@ -92,8 +92,8 @@ def default_state(repo: str = DEFAULT_REPO) -> dict[str, Any]:
         "scope": {
             "phases_enabled": [0, 1, 2],
             "phases_deferred": {
-                3: "Mac no GPU; loss-diff validation deferred",
-                4: "Mac no GPU; runtime feature matrix validation deferred",
+                3: "Runtime loss-diff validation deferred outside the static MVP",
+                4: "Runtime feature matrix validation deferred outside the static MVP",
             },
         },
         "active_phase": 0,
@@ -160,7 +160,7 @@ def default_goal_contract() -> dict[str, Any]:
                 "MTP tensor mappings are present or absence is justified.",
                 "Split/merge/transpose rules match baseline intent.",
                 "Converter entrypoints/scripts are generated.",
-                "No runtime GPU gate is required for MVP pass.",
+                "No runtime gate is required for MVP pass.",
             ],
             "comparator_rules": [
                 {"id": "phase2_mla_tensors", "markers": ["attention.q_down", "attention.q_up", "attention.kv_down"]},
@@ -174,11 +174,11 @@ def default_goal_contract() -> dict[str, Any]:
         },
         "phase3": {
             "status": "deferred",
-            "reason": "Mac no GPU; runtime loss-diff validation is out of MVP scope.",
+            "reason": "Runtime loss-diff validation is out of MVP scope.",
         },
         "phase4": {
             "status": "deferred",
-            "reason": "Mac no GPU; runtime feature matrix validation is out of MVP scope.",
+            "reason": "Runtime feature matrix validation is out of MVP scope.",
         },
     }
 

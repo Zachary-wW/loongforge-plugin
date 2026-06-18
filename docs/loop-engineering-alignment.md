@@ -8,7 +8,7 @@
 
 LoongForge Plugin（尤其是 `/loongforge:adapt_issue_loop`）已经是一个非常典型的 loop engineering 项目：
 
-- 你已经把"提示模型"换成了"设计一个自运行系统"——`adapt → compare-phase → issue-from-report → sync-issue → repair → review → verify-merge-gate → 再跑 phase`。
+- 你已经把"提示模型"换成了"设计一个自运行系统"——`adapt → phaseN-verify (Gate 1) → loongforge-phase-gate → compare-phase vs groundtruth (Gate 2) → issue-from-report → sync-issue → repair → review → verify-merge-gate → 重跑 phase`。注意 issue-loop 里有**两道 gate**：Gate 1 是 phase 自己的 verify gate（grades *this run*），Gate 2 是与 groundtruth 的静态比较器（grades *the plugin*）。Issue 与修复 PR 永远是针对 plugin 的，不是针对 run 的。
 - Addy 文章里提的"五件套 + 记忆"——Skills、Sub-agents、Worktrees、Plugins/Connectors、Automations、State/Memory——本项目 **4/6 完整命中、2/6 部分命中、1/6 缺位**（详见 §1 表）。完整缺位的是自动调度（Automations）；部分命中的是 Worktrees（用 git 分支替代）和 Connectors（仅 GitHub，无 CI/IM 通道）。再叠加一条结构性短板：缺一个系统性的"独立打分员"。
 
 但仍有 4 个明显的提升点，按优先级是：
@@ -65,18 +65,22 @@ phase agent 写代码
 ```
 adapt 跑出 phaseN 产物
    ↓
-compare-phase 与 groundtruth 对比
-   ↓ 失败
-issue-from-report → sync-issue（GitHub Issue 落地）
+[Gate 1] phaseN-verify + loongforge-phase-gate
+   失败 → phase agent 内部 repair（属于 inner loop，不出 issue）
+   通过 ↓
+[Gate 2] compare-phase 与 groundtruth 对比
+   通过 → 该 phase 收工
+   失败 ↓ （不是 run 的问题，是 plugin 的问题）
+issue-from-report → sync-issue（GitHub Issue 落到 plugin 仓库）
    ↓
-repair agent: 创建 agent/issue-<n>-<slug> 分支，先复现，再改，再 PR
+repair agent: 创建 agent/issue-<n>-<slug> 分支，只改 plugin 文件，先复现，再改，再 PR
    ↓
-review agent: 对照 IssueSpec / 测试 / 比较器报告
+独立 reviewer (adapt-reviewer): 对照 IssueSpec / 测试 / 比较器报告
    ↓
-verify-merge-gate 通过 → 合并 → 重跑 phaseN
+verify-merge-gate 通过 → 合并 → 重跑 adapt 的该 phase → 回到 Gate 1
 ```
 
-特征：**跨 agent、跨进程、用 GitHub 当看板**。这是项目的精华，也是 loop engineering 最浓的一段。
+特征：**跨 agent、跨进程、用 GitHub 当看板**。Gate 1 与 Gate 2 顺序固定不可颠倒——只在 Gate 1 已通过的产物上跑 Gate 2，才能把"这次 run 的问题"和"plugin 的问题"区分开。这是项目的精华，也是 loop engineering 最浓的一段。
 
 ### 2.3 Outer loop — Adapt eval（资格门 / 回归基准）
 

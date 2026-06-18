@@ -29,7 +29,7 @@ def test_merge_gate_passes_when_all_inputs_are_approved_and_true():
     assert result == {
         "status": "passed",
         "blocking_reasons": [],
-        "mode": "no_gpu_static_validation",
+        "mode": "static_validation",
     }
 
 
@@ -41,7 +41,7 @@ def test_merge_gate_blocks_failed_review():
 
     assert result["status"] == "blocked"
     assert result["blocking_reasons"] == ["review_verdict"]
-    assert result["mode"] == "no_gpu_static_validation"
+    assert result["mode"] == "static_validation"
 
 
 def test_merge_gate_blocks_gpu_gate_blocking_true():
@@ -52,7 +52,7 @@ def test_merge_gate_blocks_gpu_gate_blocking_true():
 
     assert result["status"] == "blocked"
     assert result["blocking_reasons"] == ["gpu_gate_blocking"]
-    assert result["mode"] == "no_gpu_static_validation"
+    assert result["mode"] == "static_validation"
 
 
 def test_merge_gate_reports_failed_booleans_in_gate_order():
@@ -69,7 +69,7 @@ def test_merge_gate_reports_failed_booleans_in_gate_order():
         "static_comparator_passed",
         "working_tree_clean",
     ]
-    assert result["mode"] == "no_gpu_static_validation"
+    assert result["mode"] == "static_validation"
 
 
 def test_merge_gate_reports_boolean_review_and_gpu_reasons_in_plan_order():
@@ -86,7 +86,7 @@ def test_merge_gate_reports_boolean_review_and_gpu_reasons_in_plan_order():
         "review_verdict",
         "gpu_gate_blocking",
     ]
-    assert result["mode"] == "no_gpu_static_validation"
+    assert result["mode"] == "static_validation"
 
 
 def test_merge_gate_blocks_when_review_verdict_missing():
@@ -97,7 +97,7 @@ def test_merge_gate_blocks_when_review_verdict_missing():
 
     assert result["status"] == "blocked"
     assert "review_verdict" in result["blocking_reasons"]
-    assert result["mode"] == "no_gpu_static_validation"
+    assert result["mode"] == "static_validation"
 
 
 def test_merge_gate_blocks_when_review_verdict_is_block_or_needs_human():

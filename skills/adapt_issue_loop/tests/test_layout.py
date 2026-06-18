@@ -25,7 +25,7 @@ def test_issue_loop_skill_documents_entrypoint():
     assert "name: adapt_issue_loop" in text
     assert "/loongforge:adapt_issue_loop" in text
     assert "loongforge-issue-loop" in text
-    assert "Mac no GPU" in text
+    assert "Gate 1" in text
     assert "Phase 0-2" in text
     assert "GitHub Issue" in text
 
