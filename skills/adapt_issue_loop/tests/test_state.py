@@ -25,7 +25,7 @@ def test_default_state_records_ds_v4_baseline():
     assert data["inputs"]["hf_checkpoint_and_tokenizer_url"] == "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-Base"
     assert "checkpoint weights" in data["inputs"]["large_artifact_policy"]
     assert data["scope"]["phases_enabled"] == [0, 1, 2]
-    assert data["scope"]["phases_deferred"][3].startswith("Mac no GPU")
+    assert data["scope"]["phases_deferred"][3].startswith("Runtime")
     assert data["merge_policy"] == "auto_after_review_and_verification"
 
 

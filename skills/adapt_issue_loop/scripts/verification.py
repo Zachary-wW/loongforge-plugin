@@ -15,13 +15,13 @@ BOOLEAN_GATES = [
     "pr_mergeable",
 ]
 
-MODE = "no_gpu_static_validation"
+MODE = "static_validation"
 
 
 def evaluate_merge_gate(inputs: Mapping[str, Any]) -> dict[str, Any]:
     """Evaluate whether issue-loop output is ready to merge.
 
-    The current loop runs in Mac/static-validation mode, so GPU runtime checks are
+    The current loop runs in static-validation mode, so runtime GPU checks are
     non-blocking unless the caller explicitly sets ``gpu_gate_blocking``.
     """
     blocking_reasons: list[str] = []

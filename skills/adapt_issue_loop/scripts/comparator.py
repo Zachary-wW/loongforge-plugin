@@ -228,7 +228,7 @@ def _issue_for_missing_marker(phase: int, marker: str, rule_id: str, goal: str):
             f"The phase prompt/generator/validator root cause for missing `{marker}` is identified and fixed.",
             f"Rerunning Phase {phase} or its deterministic verifier naturally produces/checks `{marker}` without manual output-only patching.",
             f"Comparator rule `{rule_id}` passes for `{marker}`.",
-            f"Phase {phase} remains in no-GPU static validation mode; GPU-only validators are not required for this issue.",
+            f"Phase {phase} remains in static validation mode; runtime-only validators are not required for this issue.",
         ],
         labels=labels,
     )
@@ -244,7 +244,7 @@ def compare_phase_to_baseline(
         return {
             "phase": phase,
             "status": "deferred",
-            "reason": "Only Phase 0-2 static comparison is enabled in the Mac no GPU MVP.",
+            "reason": "Only Phase 0-2 static comparison is enabled in the MVP.",
             "checks": [],
             "issue_specs": [],
             "summary": {"baseline_missing": 0, "generated_missing": 0, "passed": 0},
@@ -336,7 +336,7 @@ def compare_phase_to_baseline(
     return {
         "phase": phase,
         "status": status,
-        "mode": "no_gpu_static_baseline_compare",
+        "mode": "static_baseline_compare",
         "generated_roots": [str(path) for path in generated_roots],
         "baseline_roots": [str(path) for path in baseline_roots],
         "checks": checks,
