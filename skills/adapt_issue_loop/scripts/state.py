@@ -147,6 +147,7 @@ def default_goal_contract() -> dict[str, Any]:
                 {"id": "phase1_package", "markers": ["DeepseekV4Config", "DeepseekV4Model", "deepseek_v4_layer_spec"]},
                 {"id": "phase1_attention", "markers": ["experimental_attention_variant", "dsv4_hybrid", "csa_compress_ratios"]},
                 {"id": "phase1_moe_mtp", "markers": ["moe_n_hash_layers", "mtp_num_layers", "sqrtsoftplus"]},
+                {"id": "phase1_base_gpt_runtime", "required": True, "paths": ["loongforge/models/foundation/base/base_gpt_model.py"], "markers": ["decoder_extra_kwargs['input_ids']", "isinstance(decoder_output, tuple)", "mhc_multistream=mhc_multistream"]},
             ],
         },
         "phase2": {
@@ -165,6 +166,10 @@ def default_goal_contract() -> dict[str, Any]:
                 {"id": "phase2_mla_tensors", "markers": ["attention.q_down", "attention.q_up", "attention.kv_down"]},
                 {"id": "phase2_moe_tensors", "markers": ["experts", "router", "shared"]},
                 {"id": "phase2_mtp_tensors", "markers": ["mtp"]},
+                {"id": "phase2_native_hf_yaml", "required": True, "paths": ["configs/models/deepseek4/ckpt_convert/deepseek_v4_convert.yaml"], "markers": ["weight_scale_key: scale"]},
+                {"id": "phase2_native_hf_contract", "required": True, "paths": ["tools/convert_checkpoint/huggingface/huggingface_checkpoint.py"], "markers": ["weight_scale_key", "fp8_weight_roots", "mtp.layers.", "hc_attn_alpha_pre", "hc_ffn_alpha_pre"]},
+                {"id": "phase2_fp8_scale_layout", "required": True, "paths": ["tools/convert_checkpoint/utils/utils.py"], "markers": ["weight_scale_inv.transpose(0, 1)", "scale_rows", "scale_cols"]},
+                {"id": "phase2_mcore_moe_guard", "required": True, "paths": ["tools/convert_checkpoint/mcore/mcore_moe.py"], "markers": ["if t_name not in m_dict[mt]:"]},
             ],
         },
         "phase3": {

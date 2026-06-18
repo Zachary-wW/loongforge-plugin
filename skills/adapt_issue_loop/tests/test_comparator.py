@@ -85,6 +85,92 @@ def test_compare_phase_reports_baseline_unavailable_when_baseline_lacks_marker(t
     assert report["issue_specs"] == []
 
 
+def test_required_rule_checks_generated_even_when_baseline_lacks_marker(tmp_path):
+    baseline = tmp_path / "baseline"
+    generated = tmp_path / "run" / "phases" / "phase1"
+    contract = {
+        "phase1": {
+            "goal": "Validate DS V4 runtime contract.",
+            "comparator_rules": [
+                {"id": "runtime", "required": True, "markers": ["mhc_multistream=mhc_multistream"]},
+            ],
+        }
+    }
+    _write(baseline / "empty.py", "# baseline does not carry plugin-only required marker\n")
+    _write(generated / "base_gpt_model.py", "hidden_states = self.mtp(mhc_multistream=mhc_multistream)\n")
+
+    report = comparator.compare_phase_to_baseline(
+        phase=1,
+        generated_roots=[generated],
+        baseline_roots=[baseline],
+        goal_contract=contract,
+    )
+
+    assert report["status"] == "passed"
+    assert report["summary"] == {"baseline_missing": 0, "generated_missing": 0, "passed": 1}
+    assert report["checks"][0]["message"] == "Required marker `mhc_multistream=mhc_multistream` exists in generated roots."
+
+
+def test_required_rule_fails_and_mentions_generator_root_cause(tmp_path):
+    baseline = tmp_path / "baseline"
+    generated = tmp_path / "run" / "phases" / "phase1"
+    contract = {
+        "phase1": {
+            "goal": "Validate DS V4 runtime contract.",
+            "comparator_rules": [
+                {"id": "runtime", "required": True, "markers": ["mhc_multistream=mhc_multistream"]},
+            ],
+        }
+    }
+    _write(baseline / "empty.py", "# no marker\n")
+    _write(generated / "base_gpt_model.py", "hidden_states = self.mtp()\n")
+
+    report = comparator.compare_phase_to_baseline(
+        phase=1,
+        generated_roots=[generated],
+        baseline_roots=[baseline],
+        goal_contract=contract,
+    )
+
+    assert report["status"] == "failed"
+    assert report["summary"]["generated_missing"] == 1
+    issue = report["issue_specs"][0]
+    assert "phase prompt/generator/validator" in issue["observed"]
+    assert "do not only patch the generated checkout" in issue["expected"]
+    assert "root cause" in issue["acceptance"][0]
+
+
+def test_rule_paths_scope_marker_search_to_target_files(tmp_path):
+    baseline = tmp_path / "baseline"
+    generated = tmp_path / "generated"
+    contract = {
+        "phase2": {
+            "goal": "Validate converter file scoped markers.",
+            "comparator_rules": [
+                {
+                    "id": "scoped",
+                    "required": True,
+                    "paths": ["tools/convert_checkpoint/mcore/mcore_moe.py"],
+                    "markers": ["if t_name not in m_dict[mt]:"],
+                },
+            ],
+        }
+    }
+    _write(generated / "notes.md", "if t_name not in m_dict[mt]:\n")
+    _write(generated / "tools/convert_checkpoint/mcore/mcore_moe.py", "# guard missing from real file\n")
+    _write(baseline / "tools/convert_checkpoint/mcore/mcore_moe.py", "# baseline irrelevant for required rules\n")
+
+    report = comparator.compare_phase_to_baseline(
+        phase=2,
+        generated_roots=[generated],
+        baseline_roots=[baseline],
+        goal_contract=contract,
+    )
+
+    assert report["status"] == "failed"
+    assert report["summary"]["generated_missing"] == 1
+
+
 @pytest.mark.parametrize(
     "goal_contract",
     [

@@ -177,6 +177,15 @@ def _rules_for_phase(goal_contract: dict[str, Any], phase: int) -> list[dict[str
         markers = rule.get("markers")
         if not isinstance(markers, list) or not markers:
             raise ValueError(f"{rule_id}.markers must be a non-empty list")
+        if "required" in rule and not isinstance(rule.get("required"), bool):
+            raise ValueError(f"{rule_id}.required must be a boolean when present")
+        paths = rule.get("paths")
+        if paths is not None:
+            if not isinstance(paths, list) or not paths:
+                raise ValueError(f"{rule_id}.paths must be a non-empty list when present")
+            for relpath in paths:
+                if not isinstance(relpath, str) or relpath == "" or Path(relpath).is_absolute():
+                    raise ValueError(f"{rule_id}.paths must contain only non-empty relative paths")
         for marker in markers:
             if not isinstance(marker, str) or marker == "":
                 raise ValueError(f"{rule_id}.markers must contain only non-empty strings")
@@ -198,18 +207,26 @@ def _issue_for_missing_marker(phase: int, marker: str, rule_id: str, goal: str):
     return issue_spec.IssueSpec(
         dedup_key=dedup,
         phase=phase,
-        title=f"[Phase {phase}][DS V4] generated artifacts miss baseline marker `{marker}`",
+        title=f"[Phase {phase}][DS V4] adapt output misses baseline marker `{marker}`",
         kind="verification-failure",
         severity="blocker" if phase == 0 else "high",
         goal_blocked=goal,
-        observed=f"Static baseline comparison rule `{rule_id}` found `{marker}` in baseline code but not in generated phase artifacts.",
-        expected=f"Generated Phase {phase} artifacts include `{marker}` or explicitly justify why it is absent.",
+        observed=(
+            f"Static baseline comparison rule `{rule_id}` found `{marker}` in baseline code "
+            "but not in the adapt output scanned for this phase. This is evidence that the "
+            "phase prompt/generator/validator did not enforce a required groundtruth contract."
+        ),
+        expected=(
+            f"The Phase {phase} adapt flow generates artifacts containing `{marker}` or records "
+            "a reviewed absence proof in the phase handoff; do not only patch the generated checkout."
+        ),
         reproduction={
             "commands": [f"loongforge-issue-loop compare-phase --phase {phase} --run-dir <run_dir>"],
             "artifacts": [".loongforge/issue-loop/comparator_reports/<report>.yml"],
         },
         acceptance=[
-            f"Generated Phase {phase} artifacts contain `{marker}` or record an explicit absence proof.",
+            f"The phase prompt/generator/validator root cause for missing `{marker}` is identified and fixed.",
+            f"Rerunning Phase {phase} or its deterministic verifier naturally produces/checks `{marker}` without manual output-only patching.",
             f"Comparator rule `{rule_id}` passes for `{marker}`.",
             f"Phase {phase} remains in no-GPU static validation mode; GPU-only validators are not required for this issue.",
         ],
@@ -250,10 +267,40 @@ def compare_phase_to_baseline(
         markers = rule.get("markers") or []
         if not isinstance(markers, list):
             raise ValueError(f"{rule_id}.markers must be a list")
+        required = bool(rule.get("required"))
+        rule_paths = rule.get("paths") or []
+        if rule_paths:
+            baseline_rule_stats = _new_scan_stats()
+            generated_rule_stats = _new_scan_stats()
+            baseline_scope = [root / relpath for root in baseline_roots for relpath in rule_paths]
+            generated_scope = [root / relpath for root in generated_roots for relpath in rule_paths]
+            baseline_source = _read_text_tree(baseline_scope, baseline_rule_stats)
+            generated_source = _read_text_tree(generated_scope, generated_rule_stats)
+        else:
+            baseline_source = baseline_text
+            generated_source = generated_text
         for marker in markers:
-            baseline_has = marker in baseline_text
-            generated_has = marker in generated_text
-            if not baseline_has:
+            baseline_has = marker in baseline_source
+            generated_has = marker in generated_source
+            if required:
+                if not generated_has:
+                    generated_missing += 1
+                    checks.append({
+                        "rule_id": rule_id,
+                        "marker": marker,
+                        "status": "generated_missing",
+                        "message": f"Generated roots do not contain required marker `{marker}`.",
+                    })
+                    issue_specs.append(_issue_for_missing_marker(phase, marker, rule_id, goal).to_dict())
+                else:
+                    passed += 1
+                    checks.append({
+                        "rule_id": rule_id,
+                        "marker": marker,
+                        "status": "passed",
+                        "message": f"Required marker `{marker}` exists in generated roots.",
+                    })
+            elif not baseline_has:
                 baseline_missing += 1
                 checks.append({
                     "rule_id": rule_id,

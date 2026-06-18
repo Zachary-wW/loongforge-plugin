@@ -61,6 +61,16 @@ conversion_strategies:
     risk: medium
     protected_file_note: Must not mask real missing conversion coverage.
 
+  - name: framework_bugfix_guard
+    use_when: Existing converter code can raise on valid distributed/expert checkpoint layouts and the fix is model-agnostic/default-compatible.
+    examples:
+      - Skip mcore_moe expert writes when the current TP shard does not own t_name in m_dict[mt].
+    typical_edits:
+      - add a narrow guard before writing into existing nested dict structures
+      - document blast radius and regression evidence in attempts.jsonl and phase2_output.yml
+    risk: medium
+    protected_file_note: Requires explicit framework-bugfix classification and tests; do not hide it from generated_files/tools_modified_files.
+
 tiers:
   tier0:
     description: All modules match existing formats; no tools/convert_checkpoint code changes required.
@@ -131,15 +141,27 @@ examples:
   - case: FP8 .scale to .weight_scale_inv
     strategies:
       - insert_load_preprocess
+  - case: Native DS V4 .scale suffix preservation
+    strategies:
+      - insert_load_preprocess
+      - insert_save_postprocess
+  - case: Native DS V4 mtp.0.* and packed HC scale restoration
+    strategies:
+      - insert_save_postprocess
   - case: MTP tied head copy
     strategies:
       - insert_save_postprocess
   - case: grouped output projection
     strategies:
       - override_parallel_dim
+  - case: Sparse expert shard missing tensor group guard
+    strategies:
+      - framework_bugfix_guard
 
 completion_conditions:
   - every Tier 1/2 requirement has a conversion_strategy
   - every modified or created converter path is recorded for Step 4 code review
+  - for DeepSeek-V4, tools/convert_checkpoint/mcore/mcore_moe.py is recorded when the expert shard guard is required
+  - for DeepSeek-V4, native HF roundtrip evidence covers mtp.0.* keys, packed HC scale tensors, FP8 .scale preservation, and duplicate-storage safetensors save handling
   - protected-file constraints are satisfied or Phase 2 returns human_needed
   - changes are append-only or new-file unless explicit framework-bugfix authorization is in scope

@@ -225,6 +225,19 @@ def verify_omni_target(root: Path, state: CheckState) -> None:
         "DeepSeek V4 model",
     )
     _require_contains(
+        root / "loongforge/models/foundation/base/base_gpt_model.py",
+        [
+            "moe_n_hash_layers",
+            "decoder_extra_kwargs['input_ids']",
+            "isinstance(decoder_output, tuple)",
+            "mhc_multistream",
+            "mhc_multistream=mhc_multistream",
+            "self.position_embedding_type == 'yarn' and not self.config.multi_latent_attention",
+        ],
+        state,
+        "DeepSeek V4 BaseGPTModel runtime contract",
+    )
+    _require_contains(
         root / "loongforge/data/chat_template.py",
         ['name="deepseek4"'],
         state,
@@ -258,9 +271,55 @@ def verify_omni_target(root: Path, state: CheckState) -> None:
             "compressor",
             "indexer",
             "mtp",
+            "weight_scale_key: scale",
         ],
         state,
         "DeepSeek V4 conversion YAML",
+    )
+    _require_contains(
+        root / "examples/deepseek_v4/checkpoint_convert/convert_deepseek_v4_hf_to_mcore_fp8.sh",
+        [
+            "MODEL_CONFIG_FILE",
+            "CONVERT_FILE",
+            "configs/models/deepseek4/deepseek_v4_flash_base.yaml",
+            "--pretrain_as_fp8",
+            "--force_pow_2_scales",
+        ],
+        state,
+        "DeepSeek V4 HF-to-MCore conversion script",
+    )
+    _require_contains(
+        root / "tools/convert_checkpoint/huggingface/huggingface_checkpoint.py",
+        [
+            "weight_scale_key",
+            "fp8_weight_roots",
+            "mtp.layers.",
+            "hc_attn_alpha_pre",
+            "hc_ffn_alpha_pre",
+            "seen_storages",
+            "untyped_storage",
+        ],
+        state,
+        "DeepSeek V4 native HF checkpoint contract",
+    )
+    _require_contains(
+        root / "tools/convert_checkpoint/mcore/mcore_moe.py",
+        [
+            "if mt not in m_dict:",
+            "if t_name not in m_dict[mt]:",
+        ],
+        state,
+        "DeepSeek V4 MCore MoE expert shard guard",
+    )
+    _require_contains(
+        root / "tools/convert_checkpoint/utils/utils.py",
+        [
+            "weight_scale_inv.transpose(0, 1)",
+            "scale_rows",
+            "scale_cols",
+        ],
+        state,
+        "DeepSeek V4 FP8 scale layout compatibility",
     )
 
 

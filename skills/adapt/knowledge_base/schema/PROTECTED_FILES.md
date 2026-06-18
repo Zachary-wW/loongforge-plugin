@@ -259,6 +259,7 @@ If explicit framework-bugfix authorization is absent, return `human_needed` with
 | `mcore/mcore_base.py` | Tier 1 | Add new entries in `TENSOR_PARALLEL_DIM` |
 | `huggingface/huggingface_base.py` | Tier 2 | Append new branches at the end of `hf_to_common()` / `common_to_hf()` |
 | `mcore/mcore_base.py` | Tier 2 | Append new branches at the end of corresponding methods |
+| `mcore/mcore_moe.py` | Framework bugfix | Add narrow default-compatible guards only when expert-shard conversion proves a valid missing tensor group; record blast radius and tests |
 | `huggingface/util/hf_<name>_converter.py` | Tier 2 | **Create new** file (do not modify existing converters) |
 | `mcore/util/mcore_<name>_converter.py` | Tier 2 | **Create new** file (do not modify existing converters) |
 | `utils/config_utils.py` | Tier 1/2 | If new constants need to be parsed during config loading, append imports |
