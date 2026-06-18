@@ -99,7 +99,9 @@ For each synced GitHub Issue:
 
 ## Review and Merge Gate
 
-Review agent must evaluate:
+The reviewer is an **independent sub-agent**, not the repair agent. Dispatch the `adapt-reviewer` plugin agent (see `agents/adapt-reviewer.md`) on every repair PR. The repair agent MUST NOT review its own PR.
+
+The reviewer evaluates:
 
 - PR scope matches exactly one linked issue.
 - Issue acceptance checklist passes.
@@ -109,10 +111,18 @@ Review agent must evaluate:
 - Downstream readiness is not blocked.
 - No GPU-only gate is treated as a local blocking gate.
 
+The reviewer's structured output is persisted to:
+
+```text
+.loongforge/issue-loop/review_verdicts/issue-<n>.yml
+```
+
+Schema lives at `references/review_verdict.md`. The `verdict` field maps to the merge-gate `review_verdict` input as: `approved` → `approved`; any other value (`request_changes`, `block`, `needs_human`) → `changes_requested`.
+
 Before merge, write a gate input YAML and run:
 
 ```bash
 loongforge-issue-loop verify-merge-gate --inputs <gate.yml>
 ```
 
-Only merge when the command exits 0 and review verdict is `approved`.
+Only merge when the command exits 0 (which requires `review_verdict: approved` from the reviewer's verdict file).

@@ -87,3 +87,25 @@ def test_merge_gate_reports_boolean_review_and_gpu_reasons_in_plan_order():
         "gpu_gate_blocking",
     ]
     assert result["mode"] == "no_gpu_static_validation"
+
+
+def test_merge_gate_blocks_when_review_verdict_missing():
+    inputs = _passing_inputs()
+    del inputs["review_verdict"]
+
+    result = verification.evaluate_merge_gate(inputs)
+
+    assert result["status"] == "blocked"
+    assert "review_verdict" in result["blocking_reasons"]
+    assert result["mode"] == "no_gpu_static_validation"
+
+
+def test_merge_gate_blocks_when_review_verdict_is_block_or_needs_human():
+    for non_approved in ("block", "needs_human", "request_changes", ""):
+        inputs = _passing_inputs()
+        inputs["review_verdict"] = non_approved
+
+        result = verification.evaluate_merge_gate(inputs)
+
+        assert result["status"] == "blocked", f"verdict {non_approved!r} should block"
+        assert "review_verdict" in result["blocking_reasons"]
