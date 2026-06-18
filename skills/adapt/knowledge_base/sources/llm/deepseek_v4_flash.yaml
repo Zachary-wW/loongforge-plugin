@@ -96,7 +96,17 @@ traps:
     detail: >
       The first num_hash_layers MoE layers use tid2eid token-id lookup for expert indices while learned router scores
       still provide weights. Hash routing lives inside the LoongForge DeepSeek-V4 package and must NOT be reintroduced as
-      a Megatron-core dispatch branch.
+      a Megatron-core dispatch branch. Phase 1 must also update the shared BaseGPTModel call path so input_ids are
+      threaded into the decoder when moe_n_hash_layers > 0; otherwise the model-specific hash router cannot observe
+      token ids even when the DeepSeek-V4 package itself is generated correctly.
+
+  - field: base_gpt_model_runtime_contract
+    detail: >
+      DeepSeek V4 decoder may return (hidden_states, mhc_multistream). BaseGPTModel must unpack this tuple and pass
+      mhc_multistream into MTP/postprocess so hyper-connection state is preserved across the MTP branch. Its yarn rotary
+      branches must keep the multi_latent_attention guard used by the target groundtruth (the exact marker is
+      position_embedding_type == 'yarn' and not self.config.multi_latent_attention), because MLA/DSV4 handles rotary
+      embeddings through the model-specific attention path.
 
   - field: compressed_attention
     detail: >
@@ -118,6 +128,22 @@ traps:
     detail: >
       Official weights may be float8_e4m3fn with 128x128 block scale tensors. Roundtrip comparison must compare raw bytes
       for float8 tensors, and Phase 3 materialization must dequantize using the paired scale tensor before BF16 forward.
+      Phase 2 production conversion must preserve the native HF .scale suffix via weight_scale_key: scale, copy both
+      transposed and cropped block-scale layouts into TransformerEngine Float8BlockwiseQTensor storage, and use
+      --force_pow_2_scales with --pretrain_as_fp8 on Blackwell/newer FP8 conversion runs.
+
+  - field: native_hf_roundtrip_contract
+    detail: >
+      Rebuilt HF checkpoints must preserve the native DS V4 contract: mtp.0.* keys rather than mtp.layers.0.*, packed
+      hc_attn_scale/hc_ffn_scale tensors rather than split alpha-only leftovers, no FP8 materialization to BF16, and no
+      safetensors shared-storage failure for tied embed/MTP token embeddings. Duplicate tensor storage should be cloned
+      only when needed before shard save to avoid excessive memory use.
+
+  - field: mcore_moe_sparse_shard_guard
+    detail: >
+      MCore MoE expert writer must skip tensor-parallel shards that do not own the current tensor group key before writing
+      expert weights. Phase 2 must include tools/convert_checkpoint/mcore/mcore_moe.py in its converter manifest when this
+      guard is required, otherwise non-owning shards can raise KeyError during expert conversion.
 
   - field: attention_mask_baseline
     detail: >
@@ -136,8 +162,16 @@ validation:
     - reference_omni_present
     - reference_megatron_present
     - target_omni_v4_package_present
+    - base_gpt_model_threads_input_ids_for_hash_routing
+    - base_gpt_model_forwards_mhc_multistream_to_mtp
+    - base_gpt_model_preserves_yarn_mla_guard
     - target_megatron_no_v4_specific_files
     - target_megatron_no_v4_specific_strings
+    - ds_v4_convert_yaml_preserves_native_scale_suffix
+    - ds_v4_hf_to_mcore_script_selects_deepseek4_module_and_fp8_pow2_scales
+    - ds_v4_hf_roundtrip_preserves_native_mtp_hc_and_fp8_key_contract
+    - ds_v4_mcore_moe_writer_skips_non_owning_tensor_groups
+    - ds_v4_fp8_scale_layout_accepts_transposed_or_cropped_scale_tensors
     - random_init_smoke_passed
     - real_checkpoint_load_smoke_passed
     - same_batch_lossdiff_within_1e-3

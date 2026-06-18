@@ -121,6 +121,75 @@ def test_target_omni_data_and_train_hooks():
     assert "--deepseek-v4-sft-packing" in arguments
 
 
+def test_target_base_gpt_model_threads_dsv4_runtime_context():
+    _require_target_omni()
+    text = _read(
+        TARGET_OMNI
+        / "loongforge"
+        / "models"
+        / "foundation"
+        / "base"
+        / "base_gpt_model.py"
+    )
+    for needle in (
+        "moe_n_hash_layers",
+        "decoder_extra_kwargs['input_ids']",
+        "isinstance(decoder_output, tuple)",
+        "mhc_multistream",
+        "mhc_multistream=mhc_multistream",
+        "self.position_embedding_type == 'yarn' and not self.config.multi_latent_attention",
+    ):
+        assert needle in text, f"BaseGPTModel missing DS V4 runtime marker {needle!r}"
+
+
+def test_target_dsv4_checkpoint_converter_invariants():
+    _require_target_omni()
+    convert_yaml = _read(
+        TARGET_OMNI
+        / "configs/models/deepseek4/ckpt_convert/deepseek_v4_convert.yaml"
+    )
+    assert "weight_scale_key: scale" in convert_yaml
+
+    hf_script = _read(
+        TARGET_OMNI
+        / "examples/deepseek_v4/checkpoint_convert/convert_deepseek_v4_hf_to_mcore_fp8.sh"
+    )
+    for needle in (
+        "MODEL_CONFIG_FILE",
+        "CONVERT_FILE",
+        "configs/models/deepseek4/deepseek_v4_flash_base.yaml",
+        "--pretrain_as_fp8",
+        "--force_pow_2_scales",
+    ):
+        assert needle in hf_script, f"DS V4 HF-to-MCore script missing {needle!r}"
+
+    hf_ckpt = _read(
+        TARGET_OMNI
+        / "tools/convert_checkpoint/huggingface/huggingface_checkpoint.py"
+    )
+    for needle in (
+        "weight_scale_key",
+        "fp8_weight_roots",
+        "mtp.layers.",
+        "hc_attn_alpha_pre",
+        "hc_ffn_alpha_pre",
+        "seen_storages",
+        "untyped_storage",
+    ):
+        assert needle in hf_ckpt, f"HF checkpoint converter missing DS V4 marker {needle!r}"
+
+    mcore_moe = _read(
+        TARGET_OMNI / "tools/convert_checkpoint/mcore/mcore_moe.py"
+    )
+    assert "if mt not in m_dict:" in mcore_moe
+    assert "if t_name not in m_dict[mt]:" in mcore_moe
+
+    utils = _read(TARGET_OMNI / "tools/convert_checkpoint/utils/utils.py")
+    assert "weight_scale_inv.transpose(0, 1)" in utils
+    assert "scale_rows" in utils
+    assert "scale_cols" in utils
+
+
 def test_megatron_does_not_carry_v4_specifics():
     _require_target_megatron()
     forbidden_files = (
@@ -178,8 +247,13 @@ def test_kb_records_migration_contract():
 
 
 @pytest.mark.skipif(
-    not (SOURCE_OMNI.exists() and SOURCE_MEGATRON.exists()),
-    reason="v4_0520 reference tree not present",
+    not (
+        SOURCE_OMNI.exists()
+        and SOURCE_MEGATRON.exists()
+        and (TARGET_OMNI / "loongforge").is_dir()
+        and (TARGET_MEGATRON / "megatron" / "core").is_dir()
+    ),
+    reason="v4_0520 reference tree or target AIAK trees not present",
 )
 def test_deepseek_v4_migration_verifier_passes():
     proc = subprocess.run(
@@ -279,8 +353,23 @@ def test_verifier_matches_debug0616_contract_without_dsa_compat_and_with_generic
             "mtp_num_layers",
         ]),
     )
-    _write(omni / "configs/models/deepseek4/ckpt_convert/deepseek_v4_convert.yaml", "tid2eid\ncompressor\nindexer\nmtp\n")
+    _write(omni / "configs/models/deepseek4/ckpt_convert/deepseek_v4_convert.yaml", "tid2eid\ncompressor\nindexer\nmtp\nweight_scale_key: scale\n")
     _write(omni / "examples/deepseek_v4/sft_v4.sh", "#!/usr/bin/env bash\n")
+    _write(
+        omni / "examples/deepseek_v4/checkpoint_convert/convert_deepseek_v4_hf_to_mcore_fp8.sh",
+        "MODEL_CONFIG_FILE=$LOONGFORGE_PATH/configs/models/deepseek4/deepseek_v4_flash_base.yaml\n"
+        "CONVERT_FILE=$LOONGFORGE_PATH/configs/models/deepseek4/ckpt_convert/deepseek_v4_convert.yaml\n"
+        "--pretrain_as_fp8 --force_pow_2_scales\n",
+    )
+    _write(
+        omni / "loongforge/models/foundation/base/base_gpt_model.py",
+        "moe_n_hash_layers\n"
+        "decoder_extra_kwargs['input_ids']\n"
+        "isinstance(decoder_output, tuple)\n"
+        "mhc_multistream\n"
+        "mhc_multistream=mhc_multistream\n"
+        "self.position_embedding_type == 'yarn' and not self.config.multi_latent_attention\n",
+    )
     _write(omni / "loongforge/utils/constants.py", 'DEEPSEEK_V4 = "deepseek_v4"\n')
     _write(
         omni / "loongforge/models/foundation/__init__.py",
@@ -292,6 +381,20 @@ def test_verifier_matches_debug0616_contract_without_dsa_compat_and_with_generic
     )
     _write(omni / "loongforge/data/chat_template.py", 'name="deepseek4"\n')
     _write(omni / "loongforge/train/arguments.py", '"--deepseek-v4-sft-packing"\n')
+
+    _write(
+        omni / "tools/convert_checkpoint/huggingface/huggingface_checkpoint.py",
+        "weight_scale_key\nfp8_weight_roots\nmtp.layers.\n"
+        "hc_attn_alpha_pre\nhc_ffn_alpha_pre\nseen_storages\nuntyped_storage\n",
+    )
+    _write(
+        omni / "tools/convert_checkpoint/mcore/mcore_moe.py",
+        "if mt not in m_dict:\n    continue\nif t_name not in m_dict[mt]:\n    continue\n",
+    )
+    _write(
+        omni / "tools/convert_checkpoint/utils/utils.py",
+        "scale_rows\nscale_cols\nweight_scale_inv.transpose(0, 1)\n",
+    )
 
     _write(megatron / "megatron/core/transformer/moe/moe_utils.py", "sqrtsoftplus\n")
     _write(
