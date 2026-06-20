@@ -381,7 +381,7 @@ references/phases/phase0/reference_contract_schema.yaml
 
 #### 5a. Reference-patchset migrations
 
-If the KB entry under `knowledge_base/sources/...` for this model declares `migration.required: true` (e.g. DeepSeek V4 Flash), Phase 0 must additionally lift that block into the reference contract so later phases run in `migration_mode=reference_patchset`. This is not optional and is in addition to standard reference scanning.
+If the KB entry under `knowledge_base/sources/...` for this model declares `migration.required: true` (e.g. a model whose source YAML carries a `migration:` block), Phase 0 must additionally lift that block into the reference contract so later phases run in `migration_mode=reference_patchset`. This is not optional and is in addition to standard reference scanning.
 
 Record under `reference_contract.yml`:
 

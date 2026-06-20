@@ -141,13 +141,6 @@ examples:
   - case: FP8 .scale to .weight_scale_inv
     strategies:
       - insert_load_preprocess
-  - case: Native DS V4 .scale suffix preservation
-    strategies:
-      - insert_load_preprocess
-      - insert_save_postprocess
-  - case: Native DS V4 mtp.0.* and packed HC scale restoration
-    strategies:
-      - insert_save_postprocess
   - case: MTP tied head copy
     strategies:
       - insert_save_postprocess
@@ -161,7 +154,5 @@ examples:
 completion_conditions:
   - every Tier 1/2 requirement has a conversion_strategy
   - every modified or created converter path is recorded for Step 4 code review
-  - for DeepSeek-V4, tools/convert_checkpoint/mcore/mcore_moe.py is recorded when the expert shard guard is required
-  - for DeepSeek-V4, native HF roundtrip evidence covers mtp.0.* keys, packed HC scale tensors, FP8 .scale preservation, and duplicate-storage safetensors save handling
   - protected-file constraints are satisfied or Phase 2 returns human_needed
   - changes are append-only or new-file unless explicit framework-bugfix authorization is in scope

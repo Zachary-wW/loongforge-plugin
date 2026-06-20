@@ -228,7 +228,7 @@ behavior_modifications:
     component: ffn
     behavior_type: activation
     source_evidence:
-      hf_file: modeling_deepseek_v4.py
+      hf_file: modeling_<family>.py
       hf_line: 123
       config_fields: [swiglu_limit, glu_linear_offset]
     required_behavior: "Clamp GLU halves and apply linear offset before activation product."

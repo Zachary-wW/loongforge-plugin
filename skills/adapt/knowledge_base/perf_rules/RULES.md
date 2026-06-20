@@ -94,8 +94,7 @@ P002 covers MoE / large-vocab / hybrid layers. P003 covers MLA / sparse-MLA /
 MTP. They share the engine; the split is for severity tuning.
 
 **Provenance**:
-- DS V4 attention witness, lines 442-443 (indexer logits einsum) — see
-  `eval/witnesses/deepseek_v4_flash/expected_perf_findings.yml#A1`.
+- `observed_in: <pending — corpus scan>` (indexer logits einsum pattern).
 
 ---
 
@@ -118,7 +117,7 @@ mask.scatter_(2, idx, True)
 ```
 
 **Provenance**:
-- DS V4 attention witness, lines 837-844 — `expected_perf_findings.yml#B1`.
+- `observed_in: <pending — corpus scan>` (nested per-token loop writing into a tensor).
 
 ---
 
@@ -135,7 +134,7 @@ key = value = kv.unsqueeze(2)
 ```
 
 **Provenance**:
-- DS V4 attention witness, lines 856 / 868 — `expected_perf_findings.yml#A5`.
+- `observed_in: <pending — corpus scan>` (V cloned from K when V==K).
 
 ---
 
@@ -158,8 +157,7 @@ v_sdpa = value.permute(1, 2, 0, 3).contiguous()
 ```
 
 **Provenance**:
-- DS V4 attention witness, lines 891-893 — `expected_perf_findings.yml#B2`,
-  L434-442 (`#B8`), L988-991 (`#B4`).
+- `observed_in: <pending — corpus scan>` (repeated `permute(...).contiguous()` chains on Q/K/V).
 
 ---
 
@@ -171,8 +169,7 @@ v_sdpa = value.permute(1, 2, 0, 3).contiguous()
   shape that could be precomputed at init or cached in a buffer
 
 **Provenance**:
-- DS V4 attention witness, lines 241-246 (`_overlap_transform`) —
-  `expected_perf_findings.yml#A7`.
+- `observed_in: <pending — corpus scan>` (`_overlap_transform`-style helpers allocating fresh buffers per forward).
 
 ---
 
@@ -234,7 +231,7 @@ attn_out = F.scaled_dot_product_attention(
 ```
 
 **Provenance**:
-- DS V4 attention witness — `expected_perf_findings.yml#A2 #A3 #A4`.
+- `observed_in: <pending — corpus scan>` (full-size mask / KV expansion patterns).
 
 ---
 
@@ -254,7 +251,7 @@ v = torch.cat([v, sink_v], dim=2)
 ```
 
 **Provenance**:
-- DS V4 attention witness, lines 895-947 — `expected_perf_findings.yml#A6 #A3`.
+- `observed_in: <pending — corpus scan>` (sink token implemented via extra K/V column).
 
 ---
 
@@ -266,7 +263,7 @@ v = torch.cat([v, sink_v], dim=2)
   module should not be FP8.
 
 **Provenance**:
-- DS V4 attention witness, line 988 — `expected_perf_findings.yml#B3`.
+- `observed_in: <pending — corpus scan>` (`.dequantize()` on a Linear weight inside forward).
 
 ---
 
@@ -282,7 +279,7 @@ v = torch.cat([v, sink_v], dim=2)
   needed) or use `wrap_megatron` to subclass with the desired math.
 
 **Provenance**:
-- DS V4 attention witness, lines 996-999 — `expected_perf_findings.yml#B5`.
+- `observed_in: <pending — corpus scan>` (`einsum`/`matmul` reading `.weight` of a TP linear directly).
 
 ---
 
@@ -294,8 +291,7 @@ v = torch.cat([v, sink_v], dim=2)
   `__init__`; or use Megatron's `RotaryEmbedding` and pass `rotary_pos_emb`.
 
 **Provenance**:
-- DS V4 attention witness, lines 292 / 403 / 759 —
-  `expected_perf_findings.yml#B6`.
+- `observed_in: <pending — corpus scan>` (`inv_freq → cos/sin` recomputed inside forward).
 
 ---
 

@@ -51,8 +51,6 @@ strategy_plan:
 | DSV3 | mtp | new_component | reuse_megatron | Megatron `MultiTokenPredictionBlock` has complete implementation; connect via `get_gpt_mtp_block_spec()` |
 | Qwen3Next | attention (gated softmax) | differs | wrap_megatron | Inherits Megatron `SelfAttention`, overrides `get_query_key_value_tensors` to handle gate split, < 50 lines |
 | Qwen3Next | linear_attention (GatedDeltaNet) | new_component | new_impl | No corresponding Megatron implementation; implement from scratch using `fla` external library |
-| DSV4 | SwiGLU clamp/offset | same shape, behavior differs | modify_megatron_general or override_in_omni | If Megatron already exposes generic clamp/offset config but one path ignores it, this is a general Megatron consistency fix; if the behavior is DS V4-specific, implement an Omni-side override |
-| DSV4 | FP8/MTP reference load | checkpoint behavior differs | insert_hook | Existing reference/conversion flow needs load/save/reference hooks rather than a new model component |
 
 ## Strategy Semantics
 

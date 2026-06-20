@@ -109,7 +109,7 @@ def block_around(src_lines: list[str], line_no: int, ctx: int = 1) -> tuple[int,
 # Hot-path scope.  We treat functions named "forward" or any function called
 # transitively from forward() as hot path.  For batch-1 simplicity we use the
 # simpler proxy "method named forward + any free function called inside it".
-# This covers DS V4 well enough; refining is a batch-2 concern.
+# This covers the known corpus well enough; refining is a batch-2 concern.
 # ---------------------------------------------------------------------------
 
 
@@ -322,9 +322,8 @@ def rule_P013_dequantize_in_forward(src_text, src_lines, tree, hot_lines) -> lis
 
 def rule_P014_einsum_on_weight(src_text, src_lines, tree, hot_lines) -> list[Finding]:
     """Flag matmul/einsum where one operand is a Linear's .weight (or an alias
-    of it via .view/.reshape/.dequantize/.to/.flatten). Catches the wo_a_w
-    pattern in DS V4 where the .weight is aliased through .view before the
-    einsum."""
+    of it via .view/.reshape/.dequantize/.to/.flatten). Catches the pattern
+    where the .weight is aliased through .view before the einsum."""
     findings: list[Finding] = []
     if tree is None:
         return findings

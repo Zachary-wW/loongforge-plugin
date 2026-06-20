@@ -75,21 +75,9 @@ If no implementation contract exists, or the contract explicitly allows `standal
 
 ### 0A.1 — Reference-patchset migration gate (model-specific)
 
-When the model entry in `knowledge_base/sources/...` declares `migration.required: true` (e.g. DeepSeek V4 Flash), Phase 1 must additionally run the model's deterministic migration verifier before random-init smoke. This catches migrations that drop required Omni files, leak model-specific code into Megatron, or fail to register the new family.
+When the model entry in `knowledge_base/sources/...` declares `migration.required: true`, Phase 1 must additionally run the model's deterministic migration verifier before random-init smoke. This catches migrations that drop required Omni files, leak model-specific code into Megatron, or fail to register the new family.
 
-For DeepSeek V4 Flash:
-
-```bash
-python skills/adapt/scripts/verify_deepseek_v4_migration.py \
-    --scope all \
-    --omni-root <target_omni_root> \
-    --megatron-root <target_megatron_root> \
-    --source-omni-root <reference_omni_root> \
-    --source-megatron-root <reference_megatron_root> \
-    --report-json <run_dir>/phases/phase1/deepseek_v4_migration_report.json
-```
-
-The verifier must report `validator.name=deepseek-v4-migration` with `status=passed`. Treat any failure as `failure_gate="reference_patchset_migration_invariants"` with `fallback_phase="phase1"` and stop before Step 0; do not paper over leaked Megatron strings or missing Omni files with random-init runs.
+Invoke the verifier named in the source YAML's `validation.verifier_script` against both reference and target trees, writing its report to `<run_dir>/phases/phase1/<family>_migration_report.json`. The verifier must report `validator.status=passed`. Treat any failure as `failure_gate="reference_patchset_migration_invariants"` with `fallback_phase="phase1"` and stop before Step 0; do not paper over leaked Megatron strings or missing Omni files with random-init runs.
 
 ---
 

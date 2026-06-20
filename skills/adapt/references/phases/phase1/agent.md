@@ -306,8 +306,6 @@ f. Special handling:
    VLM        -> Per knowledge_base/recipes/vlm_task_encoder.md, determine whether to create a new Task Encoder
 ```
 
-**DeepSeek-V4 migration rule**: when `knowledge_base/sources/llm/deepseek_v4_flash.yaml` has `migration.required: true`, Step 3 must treat `code_paths` and `validation.required_evidence` as mandatory generation targets, not advisory hints. In addition to the DeepSeek-V4 package files, inspect and repair `loongforge/models/foundation/base/base_gpt_model.py` when required so the shared runtime contract matches groundtruth: pass `input_ids` into the decoder when `moe_n_hash_layers > 0`, unpack decoder tuple output into `hidden_states, mhc_multistream`, forward `mhc_multistream` into MTP/postprocess, and keep the yarn rotary branch guarded by `not self.config.multi_latent_attention`. If this shared-runtime change is blocked by protected-file policy, return `human_needed` with `failure_gate="protected_file_change_required"`; do not mark Phase 1 passed based only on package-local DS V4 files.
-
 **Step 3.5 — YAML Value Verification**: after generating `configs/models/<family>/<model>.yaml`, verify field by field per `knowledge_base/schema/HF_OMNI_FIELD_MAP.md`; proceed to Step 4 after passing.
 
 ---

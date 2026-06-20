@@ -84,40 +84,6 @@ traps:
       and loss will differ significantly from HF reference (typically > 10x).
       Correct approach: Confirm the self_attention submodule type in layer_spec is MLASelfAttention.
 
-  - field: deepseek_v4_checkpoint_prefix
-    detail: >
-      DeepSeek V4 Flash checkpoint keys use reference-style prefixes such as embed, layers, head, and mtp rather than
-      HF module prefixes model.embed_tokens, model.layers, and lm_head. Slicing and conversion must read sharded
-      safetensors through model.safetensors.index.json and map these prefixes explicitly.
-
-  - field: deepseek_v4_partial_rotary_factor
-    detail: >
-      DeepSeek V4 Flash config does not expose partial_rotary_factor directly; it must be computed as
-      qk_rope_head_dim / head_dim = 0.125. Sliding layers use main RoPE while CSA/HCA compressed layers use the
-      compress RoPE parameters.
-
-  - field: deepseek_v4_eager_attention
-    detail: >
-      DeepSeek V4 Flash disables Flash/SDPA/Flex attention in the HF reference because head_dim=512, attention sinks,
-      and compressor-concatenated KV require the eager attention semantics. Adaptation must preserve sink logits and
-      compressor block-bias masking.
-
-  - field: deepseek_v4_hash_routing
-    detail: >
-      The first num_hash_layers DeepSeek V4 Flash MoE layers route by tid2eid token-id lookup while still using learned
-      scores as weights. Treating these layers as standard learned TopKRouter changes expert indices and forward loss.
-
-  - field: deepseek_v4_compressed_attention
-    detail: >
-      DeepSeek V4 Flash alternates compressed_sparse_attention and heavily_compressed_attention layers. CSA requires the
-      Lightning Indexer, overlapping two-series windows, and per-query top-k compressed-KV masks; HCA requires
-      non-overlapping window pooling and causal compressed-entry block bias.
-
-  - field: deepseek_v4_hyper_connections
-    detail: >
-      DeepSeek V4 Flash keeps hc_mult=4 residual streams and uses mHC hyper-connection parameters at attention, FFN,
-      and final head. Shape/layout mistakes may run without shape errors but amplify into large real-weight loss diff.
-
 omni_reference:
   model_yaml:     configs/models/deepseek3/deepseek_v3.yaml
   convert_yaml:   configs/models/deepseek3/ckpt_convert/deepseek_v3_convert.yaml

@@ -180,23 +180,23 @@ If checks 1, 2, 3, and 5 pass and `reference_type=standalone` was explicitly req
 
 ## Reference-Patchset Migration Mode (`reference_type=reference_migration`)
 
-Some models — for example DeepSeek V4 Flash — must be migrated from a known-working reference checkout (e.g. v4_0520) into the current target tree (e.g. v4_0615). For these models, the KB entry sets `migration.required: true` and lists `migration.reference_root`, `migration.baseline_script`, and `migration.lossdiff_bundle`.
+Some models must be migrated from a known-working reference checkout into the current target tree. For these models, the KB entry sets `migration.required: true` and lists `migration.reference_root`, `migration.baseline_script`, and `migration.lossdiff_bundle`.
 
 In reference-migration mode, the precision gate is a **same-batch** loss diff between the reference launcher and the target launcher, not HF vs Omni.
 
 Required inputs:
 
-- `baseline_script` — the launcher under `migration.reference_root` (e.g. `/ssd3/weizhihao/code/v4_0520/sft_v4.sh`).
-- `target_script` — the migrated launcher in the target tree (e.g. `examples/deepseek_v4/sft_v4.sh`).
-- `lossdiff_bundle` — the lossdiff helper bundle declared in KB (e.g. `/ssd3/weizhihao/code/v4_0520/lossdiff_portable_bundle/lossdiff/src`).
-- `lite_checkpoint` — a lite checkpoint that exercises the full forward (e.g. `/ssd3/weizhihao/ckpt/DeepSeek-V4-Flash-Base-lite-lay4L-mtp1`).
+- `baseline_script` — the launcher under `migration.reference_root`.
+- `target_script` — the migrated launcher in the target tree.
+- `lossdiff_bundle` — the lossdiff helper bundle declared in KB.
+- `lite_checkpoint` — a lite checkpoint that exercises the full forward.
 
 Run:
 
 1. Run `baseline_script` for one iteration with the lite checkpoint, exporting the runtime batch tokens, runtime loss, and (when available) per-layer tensors with the lossdiff bundle.
 2. Run `target_script` with the same exported batch and the same checkpoint, again exporting runtime loss and tensors.
 3. Compare step-1 forward loss with `loss_mean_diff <= 1e-3`; rerun once with the same seed if a flake is suspected, then escalate.
-4. Run the model's deterministic migration verifier (e.g. `verify_deepseek_v4_migration.py`) and embed its `validator` block in the report under `details.migration_invariants`. A failure here is a hard fail of the loss-diff gate even if loss matches numerically — model-specific code in Megatron is a contract violation regardless of measured loss.
+4. Run the model's deterministic migration verifier (named in the source YAML's `validation.verifier_script`) and embed its `validator` block in the report under `details.migration_invariants`. A failure here is a hard fail of the loss-diff gate even if loss matches numerically — model-specific code in Megatron is a contract violation regardless of measured loss.
 5. When loss diverges, prefer to bisect by replaying the exported batch through baseline and target, then comparing per-layer tensors via the lossdiff bundle, before suspecting kernel-level divergence.
 
 Report this mode as `reference_type="reference_migration"` and include the baseline run's commit/branch info plus the verifier's `validator` block in `details`.

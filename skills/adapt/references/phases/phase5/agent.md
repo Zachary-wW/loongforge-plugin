@@ -157,9 +157,9 @@ Template selection:
 
 ### Migration-Mode KB Updates
 
-If the source YAML already declares `migration:` (i.e. this run was a reference-patchset migration, e.g. DeepSeek V4 Flash), Phase 5 must keep that contract live and current:
+If the source YAML already declares `migration:` (i.e. this run was a reference-patchset migration), Phase 5 must keep that contract live and current:
 
-1. Update `migration.reference_root`, `migration.reference_omni_path`, `migration.reference_megatron_path`, `migration.baseline_script`, `migration.lossdiff_bundle`, and `migration.lite_checkpoint` to match what Phase 0/3 actually used. If the reference root has rotated (e.g. v4_0520 → v4_0526), bump these in place — do not duplicate the `migration:` block.
+1. Update `migration.reference_root`, `migration.reference_omni_path`, `migration.reference_megatron_path`, `migration.baseline_script`, `migration.lossdiff_bundle`, and `migration.lite_checkpoint` to match what Phase 0/3 actually used. If the reference root has rotated, bump these in place — do not duplicate the `migration:` block.
 2. Reconcile `migration.forbidden_megatron_files` and `migration.forbidden_megatron_strings` with whatever the migration verifier actually rejected during Phase 1/3. If new strings were added to the verifier, mirror them here so future runs catch the same drift.
 3. Reconcile `migration.allowed_megatron_diff.files` with the final Phase 3 `git diff --name-only` for the Megatron tree. Record any addition with a one-line `description` of why the diff is generic and default-off.
 4. Update `validation.required_evidence` so that every gate the run actually needed is listed (random-init smoke, real-checkpoint smoke, same-batch lossdiff, migration verifier passing on the final tree). Do **not** drop evidence types just because a single run skipped them.

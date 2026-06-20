@@ -51,7 +51,6 @@ Each yaml contains: HF reference paths, Omni reference paths, `structural_tags` 
 
 ### LLM
 - [deepseek_v3](sources/llm/deepseek_v3.yaml) — MLA+MoE+MTP, sigmoid gate, e_score_correction_bias
-- [deepseek_v4_flash](sources/llm/deepseek_v4_flash.yaml) — Shared-KV MQA + compressed attention + hash MoE + mHC + FP8 checkpoint
 - [qwen2](sources/llm/qwen2.yaml) — Dense GQA, no QK Norm
 - [qwen3](sources/llm/qwen3.yaml) — Dense/MoE GQA, QK Norm
 - [qwen3_5](sources/llm/qwen3_5.yaml) — Hybrid Linear+Transformer, partial RoPE
