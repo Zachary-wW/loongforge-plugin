@@ -62,7 +62,7 @@ Created: 2026-06-22
   5. Every loop transition appends exactly one row to `phases/phaseN/attempts.jsonl` containing `ts`, `attempt`, `kind`, `pr_url`, `issue_url`, `validator`, `verdict`, `exit_reason`, and `event_id` (LOG-01); FSM is fully driven by re-reading disk state, never in-memory conversation (LOOP-01).
 **Plans**: 2 plans
 - [x] 03-01-PLAN.md — Validator wrapper + Diagnose classifier + repair template + VAL-04 hook (Wave 1)
-- [ ] 03-02-PLAN.md — FSM loop controller with budget enforcement and state persistence (Wave 2)
+- [x] 03-02-PLAN.md — FSM loop controller with budget enforcement and state persistence (Wave 2)
 
 ### Phase 4: Wiring — Phase Agents, Resume & E2E
 **Goal**: The loop is wired into existing phase agents through pre-edit/post-edit hook bullets, `--resume` reconciles local state with remote PR/issue state, and an end-to-end pytest exercises a complete `fail → diagnose → issue → fix-PR → review → merge → pass` cycle on Phase 1.

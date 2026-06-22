@@ -16,9 +16,9 @@ Date: 2026-06-22
 
 ### Loop FSM
 
-- [ ] **LOOP-01** — Implement explicit FSM `Probe → Edit → PR → Merge(base) → Validate → (Diagnose → Issue → Fix-PR → Review → Merge → Rerun)*` driven by a Python loop controller, callable per phase.
-- [ ] **LOOP-02** — Validator-pass is the only positive exit; FSM exit reasons enumerated: `validator_passed | validator_passed_after_fix | exhausted | escalated | base_only | human_needed`.
-- [ ] **LOOP-03** — Three-axis termination budget: `max_attempts_per_phase` (default 5), `max_attempts_per_run` (default 25), `max_wallclock_minutes` (default 240); breach forces `autonomous_blocked`/`human_needed` exit, never `passed`.
+- [x] **LOOP-01** — Implement explicit FSM `Probe → Edit → PR → Merge(base) → Validate → (Diagnose → Issue → Fix-PR → Review → Merge → Rerun)*` driven by a Python loop controller, callable per phase.
+- [x] **LOOP-02** — Validator-pass is the only positive exit; FSM exit reasons enumerated: `validator_passed | validator_passed_after_fix | exhausted | escalated | base_only | human_needed`.
+- [x] **LOOP-03** — Three-axis termination budget: `max_attempts_per_phase` (default 5), `max_attempts_per_run` (default 25), `max_wallclock_minutes` (default 240); breach forces `autonomous_blocked`/`human_needed` exit, never `passed`.
 - [x] **LOOP-04** — Diagnose step is a separate sub-agent distinct from Edit agent (maker ≠ checker, rpcx.io/12 P16); Diagnose is read-only and emits classification `code-bug | flaky | wrong-direction | needs-human`.
 - [x] **LOOP-05** — `wrong-direction` classification short-circuits the loop to `human_needed`, writing `phases/phaseN/escalation.md` with blockers + tried fixes.
 
@@ -48,7 +48,7 @@ Date: 2026-06-22
 
 ### Logging & State
 
-- [ ] **LOG-01** — Every loop transition appends one row to `phases/phaseN/attempts.jsonl` with `ts`, `attempt`, `kind`, `pr_url`, `issue_url`, `validator`, `verdict`, `exit_reason`, `event_id`.
+- [x] **LOG-01** — Every loop transition appends one row to `phases/phaseN/attempts.jsonl` with `ts`, `attempt`, `kind`, `pr_url`, `issue_url`, `validator`, `verdict`, `exit_reason`, `event_id`.
 - [x] **LOG-02** — `phaseN_output.yml` extended with optional `pr`, `issues`, `loop`, `loop_engineering: true` blocks; legacy outputs (no flag) still pass `loongforge-phase-gate` unchanged.
 - [x] **LOG-03** — Append-only writes, no in-place edits to `attempts.jsonl`.
 
@@ -114,9 +114,9 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | INPUT-02 | Phase 1 | Complete |
 | INPUT-03 | Phase 1 | Complete |
 | INPUT-04 | Phase 1 | Complete |
-| LOOP-01 | Phase 3 | Pending |
-| LOOP-02 | Phase 3 | Pending |
-| LOOP-03 | Phase 3 | Pending |
+| LOOP-01 | Phase 3 | Complete |
+| LOOP-02 | Phase 3 | Complete |
+| LOOP-03 | Phase 3 | Complete |
 | LOOP-04 | Phase 3 | Complete |
 | LOOP-05 | Phase 3 | Complete |
 | PR-01 | Phase 2 | Complete |
@@ -134,7 +134,7 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | VAL-03 | Phase 3 | Complete |
 | VAL-04 | Phase 3 | Complete |
 | VAL-05 | Phase 3 | Complete |
-| LOG-01 | Phase 3 | Pending |
+| LOG-01 | Phase 3 | Complete |
 | LOG-02 | Phase 1 | Complete |
 | LOG-03 | Phase 1 | Complete |
 | RESUME-01 | Phase 4 | Pending |
