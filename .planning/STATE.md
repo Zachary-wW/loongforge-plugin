@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-06-22T08:13:38.101Z"
+last_updated: "2026-06-22T08:28:49.733Z"
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # STATE.md — Adapt Skill Loop-Engineering Refactor
@@ -32,13 +32,13 @@ progress:
 ## Current Position
 
 Phase: 01 (loop-foundation-contracts-schemas-safety-plumbing) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 
 - **Milestone**: Adapt Skill Loop-Engineering Refactor (v1)
 - **Phase**: Executing
-- **Plan**: 02 complete, next 03 (CLI) + 04 (validator hook)
-- **Status**: Wave 1 complete (plans 01 + 02), starting Wave 2
-- **Progress**: `[----------] 0/5 phases complete`
+- **Plan**: 03 complete, next 04 (validator hook + lints)
+- **Status**: Wave 2 in progress (plan 03 done, plan 04 remaining)
+- **Progress**: `[████████░░] 75% plans complete`
 
 ---
 
@@ -50,11 +50,12 @@ Plan: 3 of 4
 | Phases complete | 0 |
 | Requirements mapped | 43/43 |
 | Plans created | 4 |
-| Plans complete | 2 |
+| Plans complete | 3 |
 
 ---
 | Phase 01 P01 | 6min | 2 tasks | 13 files |
 | Phase 01 P02 | 7min | 2 tasks | 8 files |
+| Phase 01-loop-foundation-contracts-schemas-safety-plumbing P03 | 6min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,9 @@ Plan: 3 of 4
 - **Plan 01-02**: GhClient is typing.Protocol (not ABC) for structural typing; FakeGhClient and RealGhClient are independent classes.
 - **Plan 01-02**: dry_run=True skips repo_permissions and branch_protection but keeps auth_status and repo_view; tolerates ckpt URL unreachable.
 - **Plan 01-02**: Branch protection checks split into hard-fail (approving reviews, restrictions, lock_branch) and warn-only (status_checks, enforce_admins, linear_history).
+- **Plan 01-03**: 8 explicit per-field CLI flags instead of combined URL@ref:subpath syntax (shell quoting of @/: is fragile).
+- **Plan 01-03**: All-or-nothing URL validation post-parse (not argparse required=) to keep legacy positional hf_path working alone.
+- **Plan 01-03**: Module-level imports of run_preflight/FakeGhClient/RealGhClient for monkey-patchability (W5).
 - PR/issue loop applies only to the two external repos (LoongForge + Loong-Megatron); plugin itself is not part of the loop.
 - Validator set frozen: union of existing per-phase validators (`phase1-verify`, `phase2-conversion`, `loss-diff`, `feature-compat`, `kb-consistency`); no unified validator.
 - Skip `/gsd:map-codebase`; researcher targets `skills/adapt/` + se.rpcx.io 04/08/12.
@@ -92,12 +96,12 @@ None.
 
 ## Session Continuity
 
-**Last session ended**: 2026-06-22, after Wave 1 (plans 01-01 + 01-02) execution.
+**Last session ended**: 2026-06-22, after plan 01-03 (CLI extension) execution.
 
 **Next session should**:
 
-1. Continue with plan 01-03 (CLI) and plan 01-04 (validator hook + lints) in Phase 1.
-2. Run Wave-level invariant: `python3 -m pytest skills/adapt/tests/lib/ -x -q` after all Wave 1 plans complete.
+1. Continue with plan 01-04 (validator hook + lints) in Phase 1.
+2. Run full test suite after plan 04 completes to verify Wave 2.
 
 **Files of record**:
 
@@ -109,4 +113,4 @@ None.
 
 ---
 
-*Last updated: 2026-06-22 after Wave 1 (plans 01-01 + 01-02) execution.*
+*Last updated: 2026-06-22 after plan 01-03 (CLI extension) execution.*

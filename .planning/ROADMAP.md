@@ -33,7 +33,7 @@ Created: 2026-06-22
 **Plans**: 4 plans
 - [x] 01-PLAN.md — Foundation libs: schema, jsonl, protected_paths, redact, pydantic dep (Wave 1)
 - [x] 02-PLAN.md — GhClient (Protocol + RealGhClient stub + FakeGhClient) + run_preflight (Wave 1)
-- [ ] 03-PLAN.md — CLI extension: 8 URL flags + --dry-run + repos/loop blocks + preflight wire-up (Wave 2)
+- [x] 03-PLAN.md — CLI extension: 8 URL flags + --dry-run + repos/loop blocks + preflight wire-up (Wave 2)
 - [ ] 04-PLAN.md — Validator hook (_validate_loop_evidence inert) + /loop lint + SAFE-03 doc note (Wave 2)
 
 ### Phase 2: GitHub Helpers — PR & Issue Lifecycle

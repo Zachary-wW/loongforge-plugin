@@ -9,8 +9,8 @@ Date: 2026-06-22
 
 ### Inputs
 
-- [ ] **INPUT-01** — Skill at startup collects four URL inputs: HF impl URL, ckpt+tokenizer URL, LoongForge repo URL, Loong-Megatron repo URL (with branch + optional subpath); each is validated for reachability and basic shape.
-- [ ] **INPUT-02** — `run_inputs.yml` extended with a top-level `repos:` block carrying all four URLs; downstream phases read from this single source.
+- [x] **INPUT-01** — Skill at startup collects four URL inputs: HF impl URL, ckpt+tokenizer URL, LoongForge repo URL, Loong-Megatron repo URL (with branch + optional subpath); each is validated for reachability and basic shape.
+- [x] **INPUT-02** — `run_inputs.yml` extended with a top-level `repos:` block carrying all four URLs; downstream phases read from this single source.
 - [x] **INPUT-03** — Pre-flight checks at startup: `gh auth status` OK, write permissions on both external repos, ckpt URL readable, branch protection rules dumped and asserted compatible with auto-merge — fail-fast with precise error otherwise.
 - [x] **INPUT-04** — `loongforge-adapt --dry-run` flag wired from day one: when set, the entire FSM is driven against `FakeGhClient` with no live `gh` calls and no GPU validator invocation; preflight in dry-run mode skips remote-write checks but still validates URL shape + Pydantic schema. This is the substrate the local acceptance gate (ACC-01) runs on.
 
@@ -74,7 +74,7 @@ Date: 2026-06-22
 ### Compatibility
 
 - [ ] **COMPAT-01** — Existing `loongforge-adapt <hf_path>` invocation without URL flags continues to produce a valid run dir; loop engineering is opt-in via `repos:` presence.
-- [ ] **COMPAT-02** — `run_state.json` legacy fields untouched; all new orchestration state lives in `run_inputs.yml` and `phaseN_output.yml`.
+- [x] **COMPAT-02** — `run_state.json` legacy fields untouched; all new orchestration state lives in `run_inputs.yml` and `phaseN_output.yml`.
 - [ ] **COMPAT-03** — Existing Phase 0–5 validator and step-gate logic unchanged; new `_validate_loop_evidence()` in `validate_phase_completion.py` runs only when `loop_engineering: true` flag present.
 
 ### Tests
@@ -110,8 +110,8 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| INPUT-01 | Phase 1 | Pending |
-| INPUT-02 | Phase 1 | Pending |
+| INPUT-01 | Phase 1 | Complete |
+| INPUT-02 | Phase 1 | Complete |
 | INPUT-03 | Phase 1 | Complete |
 | INPUT-04 | Phase 1 | Complete |
 | LOOP-01 | Phase 3 | Pending |
@@ -148,7 +148,7 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | DOC-03 | Phase 4 | Pending |
 | DOC-04 | Phase 5 | Pending |
 | COMPAT-01 | Phase 4 | Pending |
-| COMPAT-02 | Phase 1 | Pending |
+| COMPAT-02 | Phase 1 | Complete |
 | COMPAT-03 | Phase 1 | Pending |
 | TEST-01 | Phase 4 | Pending |
 | TEST-02 | Phase 1 | Complete |
