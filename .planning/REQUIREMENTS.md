@@ -83,6 +83,12 @@ Date: 2026-06-22
 - [ ] **TEST-03** — Round-trip test for `run_inputs.yml v2` (with and without `repos:` block) exercising backward compat.
 - [ ] **TEST-04** — Resume test: kill mid-Diagnose, re-invoke with `--resume`, assert no duplicate issue/PR created.
 
+### Acceptance Handoff (local-only milestone target)
+
+- [ ] **ACC-01** — Local milestone exit criterion is "plugin in runnable state": all pytest green, `loongforge-adapt --dry-run` (or equivalent) drives the full FSM against `FakeGhClient` without GPU; **no live `gh` calls and no GPU validators required to ship this milestone**.
+- [ ] **ACC-02** — `skills/adapt/references/acceptance/ds_v4_runbook.md` exists, captures the exact GPU-machine invocation (HF impl URL, ckpt URL, LoongForge + Loong-Megatron repo URLs for DS V4), the community-version repo URL to diff against, and explicit pass criteria for the DS V4 acceptance run.
+- [ ] **ACC-03** — Session/plugin portability: a `.planning/HANDOFF.md` lists what to copy to the GPU box (branch name, planning dir, skill paths) and how to resume there (`--resume` semantics, env vars, ckpt path expectations).
+
 ---
 
 ## Out of Scope

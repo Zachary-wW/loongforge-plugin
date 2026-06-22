@@ -68,14 +68,16 @@ Created: 2026-06-22
 **Plans**: TBD
 
 ### Phase 5: Documentation, KB & Run Finalization
-**Goal**: SKILL.md, phase manuals, and the loop-engineering reference cite the actual implementation; every run ends with a comprehension summary so users understand what merged and why; bot artifacts are housekept so the issue tracker stays readable across runs.
+**Goal**: SKILL.md, phase manuals, and the loop-engineering reference cite the actual implementation; every run ends with a comprehension summary so users understand what merged and why; bot artifacts are housekept so the issue tracker stays readable across runs. Also produces the GPU-machine handoff so DS V4 acceptance can be driven there.
 **Depends on**: Phase 4 (implementation must exist before docs reference it)
-**Requirements**: DOC-01, DOC-02, DOC-04
+**Requirements**: DOC-01, DOC-02, DOC-04, ACC-01, ACC-02, ACC-03
 **Success Criteria** (what must be TRUE):
   1. `skills/adapt/SKILL.md` is rewritten to describe the loop FSM, the four user inputs (`repos:` block), the maker-checker split (Edit ≠ Diagnose), the three-axis termination budget, and a "When NOT to use this loop" guard listing trivial-fix and no-validator cases (DOC-01).
   2. `skills/adapt/references/loop_engineering/README.md` exists, cites se.rpcx.io/04, /08, /12 with quoted principles, and maps each principle (P1..P21) to a concrete implementation file/function in this skill (DOC-02).
   3. End-of-run produces `phases/phaseN_summary.md` for every executed phase plus a single per-run `comprehension_summary.md` (≤1 page) listing every merged commit and one-line rationale (DOC-04).
   4. On run completion, all auxiliary bot-created issues are closed with a summary comment linking the run digest, and bot PRs/issues consistently carry `loongforge-adapt`, `run-<id>`, `phase-<N>` labels — verified by an end-of-run housekeeping pass that exits non-zero on any unlabeled or stranded artifact.
+  5. **Local-acceptance gate (ACC-01)**: `pytest skills/adapt/tests/` green AND a `loongforge-adapt --dry-run --hf-impl-url ... --hf-ckpt-url ... --loongforge-repo ... --megatron-repo ...` invocation drives the FSM end-to-end against `FakeGhClient` with **no live `gh` calls and no GPU** — this is the local milestone exit criterion.
+  6. **GPU handoff artifacts**: `skills/adapt/references/acceptance/ds_v4_runbook.md` (ACC-02) captures the DS V4 invocation, community-version diff target, and pass criteria; `.planning/HANDOFF.md` (ACC-03) lists what to copy to the GPU box and how to `--resume` there.
 **Plans**: TBD
 
 ---
@@ -94,8 +96,8 @@ Created: 2026-06-22
 
 ## Coverage
 
-- **Total v1 requirements**: 43
-- **Mapped**: 43/43 ✓
+- **Total v1 requirements**: 46
+- **Mapped**: 46/46 ✓
 - **Orphans**: 0
 - **Duplicates**: 0
 
@@ -144,6 +146,9 @@ Created: 2026-06-22
 | TEST-02 | 1 |
 | TEST-03 | 1 |
 | TEST-04 | 4 |
+| ACC-01 | 5 |
+| ACC-02 | 5 |
+| ACC-03 | 5 |
 
 ---
 

@@ -51,6 +51,9 @@
 - **方法论锚点**：loop engineering（se.rpcx.io 第 4 / 8 / 12 篇）。把"循环 + 反馈"作为一等设计原则，而不是把适配当成线性流水线。
 - **外部依赖**：GitHub 仓库 `Zachary-wW/LoongForge`（主干 main）+ `Zachary-wW/Loong-Megatron`（分支 `loong-main/core_v0.15.0`）。运行时通过 `gh` CLI 操作 PR / issue。
 - **样板模型**：DeepSeek-V4-Flash（HF 路径 `transformers/models/deepseek_v4` + ckpt `deepseek-ai/DeepSeek-V4-Flash-Base`），用作 e2e 验证案例。
+- **验收分两层（重要）**：
+  - **本地验收**（开发机/笔记本，无 GPU）：plugin 整理到"可运行"状态 —— Pydantic 模型 round-trip、redactor snapshot、`FakeGhClient` mock 的 PR/issue/merge 全链路、`--resume` 幂等、所有 pytest 绿。**不跑真 GPU validator，不发真 PR**。
+  - **GPU 机器验收**（开发机 GPU 节点）：用户把当前 session + plugin 代码拷贝过去，用重构后的 skill 完整跑一次 DS V4 适配，然后把结果与一份**社区版本**的同模型适配做 diff，看缺什么、差什么。这是最终验收，**不在本会话内执行**。
 
 ## Constraints
 
