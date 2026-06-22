@@ -374,8 +374,9 @@ def run_phase_loop(
     budget_breach = check_budget(budget, state.attempt, state.total_attempts_used, state.run_start_time)
     if budget_breach:
         state.exit_reason = budget_breach
-        _transition(state, FSMState.EXIT, run_dir, kind="budget_check", exit_reason=budget_breach.value)
         state.current_state = FSMState.EXIT
+        _transition(state, FSMState.EXIT, run_dir, kind="budget_check", exit_reason=budget_breach.value)
+        _write_phase_output(run_dir, phase, state, None, budget)
         state.persist(run_dir)
         return budget_breach
 
@@ -467,8 +468,9 @@ def run_phase_loop(
             if budget_breach:
                 state.exit_reason = budget_breach
                 state.current_state = FSMState.EXIT
-                state.persist(run_dir)
                 _transition(state, FSMState.EXIT, run_dir, kind="validate", exit_reason=budget_breach.value)
+                _write_phase_output(run_dir, phase, state, None, budget)
+                state.persist(run_dir)
                 return budget_breach
 
             if result.status == "passed":
@@ -597,8 +599,9 @@ def run_phase_loop(
             if budget_breach:
                 state.exit_reason = budget_breach
                 state.current_state = FSMState.EXIT
-                state.persist(run_dir)
                 _transition(state, FSMState.EXIT, run_dir, kind="rerun", exit_reason=budget_breach.value)
+                _write_phase_output(run_dir, phase, state, None, budget)
+                state.persist(run_dir)
                 return budget_breach
 
             if result.status == "passed":
@@ -615,9 +618,17 @@ def run_phase_loop(
 
         # --- EXIT: return exit_reason ---
         case FSMState.EXIT:
-            # Safety net: write phase_output if not already written
+            # Safety net: write phase_output if not already written with validator_integrity
             output_path = run_dir / "phases" / f"phase{phase}_output.yml"
-            if not output_path.exists() or "validator_integrity" not in (yaml.safe_load(output_path.read_text()) or {} if output_path.exists() else {}):
+            needs_write = True
+            if output_path.exists():
+                try:
+                    existing = yaml.safe_load(output_path.read_text()) or {}
+                    if "validator_integrity" in existing:
+                        needs_write = False
+                except Exception:
+                    pass
+            if needs_write:
                 _write_phase_output(run_dir, phase, state, None, budget)
             state.persist(run_dir)
             return state.exit_reason or ExitReason.EXHAUSTED

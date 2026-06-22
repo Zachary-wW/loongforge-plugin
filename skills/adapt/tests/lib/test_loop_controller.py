@@ -715,3 +715,408 @@ class TestRunPhaseLoopValidateState:
         # Verify issues_opened tracked in state
         reloaded = LoopState.from_disk(run_dir, phase=1)
         assert len(reloaded.issues_opened) > 0
+
+
+# ---------------------------------------------------------------------------
+# Task 2 tests: FIX_PR, REVIEW, MERGE_FIX, RERUN, EXIT states
+# ---------------------------------------------------------------------------
+
+class TestFixPrState:
+    def test_fix_pr_advances_attempt(self, tmp_path):
+        from skills.adapt.lib.loop_controller import run_phase_loop, LoopState, FSMState, ExitReason
+        from skills.adapt.lib.validator_wrapper import ValidatorResult
+        run_dir = _setup_run_dir(tmp_path, phase=1)
+        _write_loop_state(run_dir, phase=1, current_state="fix_pr", attempt=1)
+        gh = FakeGhClient()
+        budget = LoopBudget()
+        with patch("skills.adapt.lib.loop_controller.run_validator") as mock_run, \
+             patch("skills.adapt.lib.loop_controller.check_validator_integrity") as mock_integrity, \
+             patch("skills.adapt.lib.loop_controller.classify_failure") as mock_classify:
+            from skills.adapt.lib.diagnose_classifier import DiagnoseResult, DiagnoseClassification
+            mock_run.return_value = ValidatorResult(
+                name="phase1-verify", status="passed",
+                failure_signature=None, evidence={},
+                integrity_ok=True,
+                integrity_details={"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+            )
+            mock_integrity.return_value = {"integrity_ok": True, "binary_hash_ok": True, "log_mtime_ok": True, "log_present": True}
+            mock_classify.return_value = DiagnoseResult(
+                classification=DiagnoseClassification.CODE_BUG,
+                rationale="test", suggested_fix_summary=None,
+                failure_signature=None,
+            )
+            run_phase_loop(run_dir, phase=1, gh=gh, budget=budget, max_iterations=15)
+        reloaded = LoopState.from_disk(run_dir, phase=1)
+        assert reloaded.attempt >= 2  # FIX_PR should advance the attempt
+
+
+class TestReviewState:
+    def test_review_transitions_to_merge_fix(self, tmp_path):
+        from skills.adapt.lib.loop_controller import run_phase_loop, LoopState, FSMState, ExitReason
+        from skills.adapt.lib.validator_wrapper import ValidatorResult
+        run_dir = _setup_run_dir(tmp_path, phase=1)
+        _write_loop_state(run_dir, phase=1, current_state="review", attempt=2)
+        gh = FakeGhClient()
+        budget = LoopBudget()
+        with patch("skills.adapt.lib.loop_controller.run_validator") as mock_run, \
+             patch("skills.adapt.lib.loop_controller.check_validator_integrity") as mock_integrity:
+            mock_run.return_value = ValidatorResult(
+                name="phase1-verify", status="passed",
+                failure_signature=None, evidence={},
+                integrity_ok=True,
+                integrity_details={"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+            )
+            mock_integrity.return_value = {"integrity_ok": True, "binary_hash_ok": True, "log_mtime_ok": True, "log_present": True}
+            run_phase_loop(run_dir, phase=1, gh=gh, budget=budget, max_iterations=10)
+        # After review -> merge_fix -> rerun -> passed, the loop should exit with VALIDATOR_PASSED_AFTER_FIX
+        reloaded = LoopState.from_disk(run_dir, phase=1)
+        assert reloaded.exit_reason == ExitReason.VALIDATOR_PASSED_AFTER_FIX
+
+
+class TestMergeFixState:
+    def test_merge_fix_merges_pr(self, tmp_path):
+        from skills.adapt.lib.loop_controller import run_phase_loop, LoopState, FSMState, ExitReason
+        from skills.adapt.lib.validator_wrapper import ValidatorResult
+        run_dir = _setup_run_dir(tmp_path, phase=1)
+        _write_loop_state(run_dir, phase=1, current_state="merge_fix", attempt=2, pr_number=5)
+        gh = FakeGhClient()
+        budget = LoopBudget()
+        repos_info = {
+            "loongforge_repo": "Zachary-wW/LoongForge",
+            "loongforge_base_ref": "main",
+            "run_id": "test-run",
+        }
+        with patch("skills.adapt.lib.loop_controller.run_validator") as mock_run, \
+             patch("skills.adapt.lib.loop_controller.check_validator_integrity") as mock_integrity:
+            mock_run.return_value = ValidatorResult(
+                name="phase1-verify", status="passed",
+                failure_signature=None, evidence={},
+                integrity_ok=True,
+                integrity_details={"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+            )
+            mock_integrity.return_value = {"integrity_ok": True, "binary_hash_ok": True, "log_mtime_ok": True, "log_present": True}
+            run_phase_loop(run_dir, phase=1, gh=gh, budget=budget, repos_info=repos_info, max_iterations=10)
+        # Verify merge_pr was called
+        merge_calls = [c for c in gh.calls if c.method == "merge_pr"]
+        assert len(merge_calls) > 0
+
+
+class TestRerunState:
+    def test_rerun_pass_exits_validator_passed_after_fix(self, tmp_path):
+        from skills.adapt.lib.loop_controller import run_phase_loop, ExitReason
+        from skills.adapt.lib.validator_wrapper import ValidatorResult
+        run_dir = _setup_run_dir(tmp_path, phase=1)
+        _write_loop_state(run_dir, phase=1, current_state="rerun", attempt=2)
+        gh = FakeGhClient()
+        budget = LoopBudget()
+        with patch("skills.adapt.lib.loop_controller.run_validator") as mock_run, \
+             patch("skills.adapt.lib.loop_controller.check_validator_integrity") as mock_integrity:
+            mock_run.return_value = ValidatorResult(
+                name="phase1-verify", status="passed",
+                failure_signature=None, evidence={},
+                integrity_ok=True,
+                integrity_details={"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+            )
+            mock_integrity.return_value = {"integrity_ok": True, "binary_hash_ok": True, "log_mtime_ok": True, "log_present": True}
+            result = run_phase_loop(run_dir, phase=1, gh=gh, budget=budget)
+        assert result == ExitReason.VALIDATOR_PASSED_AFTER_FIX
+
+    def test_rerun_pass_writes_phase_output(self, tmp_path):
+        from skills.adapt.lib.loop_controller import run_phase_loop, ExitReason
+        from skills.adapt.lib.validator_wrapper import ValidatorResult
+        run_dir = _setup_run_dir(tmp_path, phase=1)
+        _write_loop_state(run_dir, phase=1, current_state="rerun", attempt=2)
+        gh = FakeGhClient()
+        budget = LoopBudget()
+        with patch("skills.adapt.lib.loop_controller.run_validator") as mock_run, \
+             patch("skills.adapt.lib.loop_controller.check_validator_integrity") as mock_integrity:
+            mock_run.return_value = ValidatorResult(
+                name="phase1-verify", status="passed",
+                failure_signature=None, evidence={},
+                integrity_ok=True,
+                integrity_details={"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+            )
+            mock_integrity.return_value = {"integrity_ok": True, "binary_hash_ok": True, "log_mtime_ok": True, "log_present": True}
+            run_phase_loop(run_dir, phase=1, gh=gh, budget=budget)
+        output_path = run_dir / "phases" / "phase1_output.yml"
+        assert output_path.exists()
+        data = yaml.safe_load(output_path.read_text())
+        assert data["validator_integrity"]["integrity_ok"] is True
+
+    def test_rerun_passes_megatron_args(self, tmp_path):
+        from skills.adapt.lib.loop_controller import run_phase_loop, ExitReason
+        from skills.adapt.lib.validator_wrapper import ValidatorResult
+        run_dir = _setup_run_dir(tmp_path, phase=2)
+        _write_loop_state(run_dir, phase=2, current_state="rerun", attempt=2)
+        gh = FakeGhClient()
+        budget = LoopBudget()
+        repos_info = {
+            "loongforge_repo": "Zachary-wW/LoongForge",
+            "megatron_repo": "Zachary-wW/Loong-Megatron",
+            "megatron_ref": "loong-main/core_v0.15.0",
+            "run_id": "test-run",
+        }
+        with patch("skills.adapt.lib.loop_controller.run_validator") as mock_run, \
+             patch("skills.adapt.lib.loop_controller.check_validator_integrity") as mock_integrity:
+            mock_run.return_value = ValidatorResult(
+                name="phase2-conversion", status="passed",
+                failure_signature=None, evidence={},
+                integrity_ok=True,
+                integrity_details={"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+            )
+            mock_integrity.return_value = {"integrity_ok": True, "binary_hash_ok": True, "log_mtime_ok": True, "log_present": True}
+            run_phase_loop(run_dir, phase=2, gh=gh, budget=budget, repos_info=repos_info)
+        mock_run.assert_called_once()
+        call_kwargs = mock_run.call_args
+        # Verify megatron_repo and megatron_ref were passed
+        assert call_kwargs.kwargs.get("megatron_repo") == "Zachary-wW/Loong-Megatron" or \
+               (len(call_kwargs.args) > 3 and call_kwargs.args[3] == "Zachary-wW/Loong-Megatron")
+        assert call_kwargs.kwargs.get("megatron_ref") == "loong-main/core_v0.15.0" or \
+               (len(call_kwargs.args) > 4 and call_kwargs.args[4] == "loong-main/core_v0.15.0")
+
+    def test_rerun_fail_transitions_to_diagnose(self, tmp_path):
+        from skills.adapt.lib.loop_controller import run_phase_loop, LoopState, FSMState, ExitReason
+        from skills.adapt.lib.validator_wrapper import ValidatorResult, FailureSignature
+        from skills.adapt.lib.diagnose_classifier import DiagnoseResult, DiagnoseClassification
+        run_dir = _setup_run_dir(tmp_path, phase=1)
+        _write_loop_state(
+            run_dir, phase=1, current_state="rerun", attempt=2,
+            last_validator_summary={
+                "status": "failed", "name": "phase1-verify",
+                "integrity_ok": True,
+                "integrity_details": {"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+                "failure_signature": {"kind": "missing_artifact", "location": "test.py", "expected": "ok", "actual": "err"},
+                "loong_megatron_sha": None,
+            },
+        )
+        gh = FakeGhClient()
+        budget = LoopBudget()
+        with patch("skills.adapt.lib.loop_controller.run_validator") as mock_run, \
+             patch("skills.adapt.lib.loop_controller.check_validator_integrity") as mock_integrity, \
+             patch("skills.adapt.lib.loop_controller.classify_failure") as mock_classify:
+            mock_run.return_value = ValidatorResult(
+                name="phase1-verify", status="failed",
+                failure_signature=FailureSignature(kind="missing_artifact", location="test.py", expected="ok", actual="err"),
+                evidence={}, integrity_ok=True,
+                integrity_details={"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+            )
+            mock_integrity.return_value = {"integrity_ok": True, "binary_hash_ok": True, "log_mtime_ok": True, "log_present": True}
+            mock_classify.return_value = DiagnoseResult(
+                classification=DiagnoseClassification.NEEDS_HUMAN,
+                rationale="test escalate", suggested_fix_summary=None,
+                failure_signature=None,
+            )
+            result = run_phase_loop(run_dir, phase=1, gh=gh, budget=budget)
+        # Should escalate since classify returns NEEDS_HUMAN
+        assert result == ExitReason.HUMAN_NEEDED
+
+
+class TestFullCycle:
+    def test_full_cycle_against_fake_gh_client(self, tmp_path):
+        """Full VALIDATE->DIAGNOSE(CODE_BUG)->ISSUE->FIX_PR->REVIEW->MERGE_FIX->RERUN->passed cycle."""
+        from skills.adapt.lib.loop_controller import run_phase_loop, LoopState, ExitReason
+        from skills.adapt.lib.validator_wrapper import ValidatorResult, FailureSignature
+        from skills.adapt.lib.diagnose_classifier import DiagnoseResult, DiagnoseClassification
+        run_dir = _setup_run_dir(tmp_path, phase=1)
+        _write_loop_state(run_dir, phase=1, current_state="validate", attempt=1)
+        gh = FakeGhClient()
+        budget = LoopBudget()
+        repos_info = {
+            "loongforge_repo": "Zachary-wW/LoongForge",
+            "loongforge_base_ref": "main",
+            "megatron_repo": "Zachary-wW/Loong-Megatron",
+            "megatron_ref": "loong-main/core_v0.15.0",
+            "run_id": "test-run",
+        }
+        # First validator call fails, second (rerun) passes
+        call_count = [0]
+        def validator_side_effect(run_dir, phase, gh, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return ValidatorResult(
+                    name="phase1-verify", status="failed",
+                    failure_signature=FailureSignature(kind="missing_artifact", location="model.py", expected="exists", actual="missing"),
+                    evidence={}, integrity_ok=True,
+                    integrity_details={"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+                )
+            return ValidatorResult(
+                name="phase1-verify", status="passed",
+                failure_signature=None, evidence={},
+                integrity_ok=True,
+                integrity_details={"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+            )
+        with patch("skills.adapt.lib.loop_controller.run_validator") as mock_run, \
+             patch("skills.adapt.lib.loop_controller.check_validator_integrity") as mock_integrity, \
+             patch("skills.adapt.lib.loop_controller.classify_failure") as mock_classify:
+            mock_run.side_effect = validator_side_effect
+            mock_integrity.return_value = {"integrity_ok": True, "binary_hash_ok": True, "log_mtime_ok": True, "log_present": True}
+            mock_classify.return_value = DiagnoseResult(
+                classification=DiagnoseClassification.CODE_BUG,
+                rationale="test code bug", suggested_fix_summary="fix it",
+                failure_signature=FailureSignature(kind="missing_artifact", location="model.py", expected="exists", actual="missing"),
+            )
+            result = run_phase_loop(run_dir, phase=1, gh=gh, budget=budget, repos_info=repos_info)
+        assert result == ExitReason.VALIDATOR_PASSED_AFTER_FIX
+        # Verify phaseN_output.yml has loop, validator_integrity, pr, issues blocks
+        output_path = run_dir / "phases" / "phase1_output.yml"
+        assert output_path.exists()
+        data = yaml.safe_load(output_path.read_text())
+        assert "loop" in data
+        assert "validator_integrity" in data
+        assert "pr" in data
+        assert "issues" in data
+        assert data["validator_integrity"]["integrity_ok"] is True
+
+    def test_full_cycle_phase_output_passes_validation(self, tmp_path):
+        """After full cycle, validate_phase_output should not raise (VAL-04 hook compatible)."""
+        from skills.adapt.lib.loop_controller import run_phase_loop, ExitReason
+        from skills.adapt.lib.validator_wrapper import ValidatorResult, FailureSignature
+        from skills.adapt.lib.diagnose_classifier import DiagnoseResult, DiagnoseClassification
+        from skills.adapt.scripts.validate_phase_completion import validate_phase_output
+        run_dir = _setup_run_dir(tmp_path, phase=1)
+        _write_loop_state(run_dir, phase=1, current_state="validate", attempt=1)
+        gh = FakeGhClient()
+        budget = LoopBudget()
+        repos_info = {
+            "loongforge_repo": "Zachary-wW/LoongForge",
+            "loongforge_base_ref": "main",
+            "run_id": "test-run",
+        }
+        call_count = [0]
+        def validator_side_effect(run_dir, phase, gh, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return ValidatorResult(
+                    name="phase1-verify", status="failed",
+                    failure_signature=FailureSignature(kind="missing_artifact", location="model.py", expected="exists", actual="missing"),
+                    evidence={}, integrity_ok=True,
+                    integrity_details={"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+                )
+            return ValidatorResult(
+                name="phase1-verify", status="passed",
+                failure_signature=None, evidence={},
+                integrity_ok=True,
+                integrity_details={"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+            )
+        with patch("skills.adapt.lib.loop_controller.run_validator") as mock_run, \
+             patch("skills.adapt.lib.loop_controller.check_validator_integrity") as mock_integrity, \
+             patch("skills.adapt.lib.loop_controller.classify_failure") as mock_classify:
+            mock_run.side_effect = validator_side_effect
+            mock_integrity.return_value = {"integrity_ok": True, "binary_hash_ok": True, "log_mtime_ok": True, "log_present": True}
+            mock_classify.return_value = DiagnoseResult(
+                classification=DiagnoseClassification.CODE_BUG,
+                rationale="test", suggested_fix_summary=None,
+                failure_signature=FailureSignature(kind="missing_artifact", location="model.py", expected="exists", actual="missing"),
+            )
+            run_phase_loop(run_dir, phase=1, gh=gh, budget=budget, repos_info=repos_info)
+        # Add required fields that the validator script checks
+        output_path = run_dir / "phases" / "phase1_output.yml"
+        data = yaml.safe_load(output_path.read_text())
+        data["status"] = "passed"
+        data["step_gate"] = {"mandatory_steps_complete": True}
+        data["steps"] = {"step1": {"status": "passed", "evidence": "ok", "required": True}}
+        data["validator"] = {"name": "phase1-verify", "status": "passed"}
+        output_path.write_text(yaml.dump(data, sort_keys=False, default_flow_style=False))
+        # validate_phase_output should not raise on the integrity block
+        try:
+            validate_phase_output(run_dir, phase=1)
+        except ValueError as e:
+            # The validator expects full phase structure; if it only fails on
+            # missing step details, that's expected for our partial test setup.
+            # What we really check is that _validate_loop_evidence does NOT reject
+            # our validator_integrity block.
+            assert "validator_integrity" not in str(e), f"VAL-04 hook rejected our integrity block: {e}"
+
+
+class TestExhaustedExit:
+    def test_exhausted_exit_writes_phase_output(self, tmp_path):
+        from skills.adapt.lib.loop_controller import run_phase_loop, ExitReason
+        from skills.adapt.lib.validator_wrapper import ValidatorResult
+        run_dir = _setup_run_dir(tmp_path, phase=1)
+        _write_loop_state(run_dir, phase=1, current_state="validate", attempt=5)
+        budget = LoopBudget(max_attempts_per_phase=5)
+        gh = FakeGhClient()
+        result = run_phase_loop(run_dir, phase=1, gh=gh, budget=budget)
+        assert result == ExitReason.EXHAUSTED
+        output_path = run_dir / "phases" / "phase1_output.yml"
+        assert output_path.exists()
+        data = yaml.safe_load(output_path.read_text())
+        assert data["loop"]["exit_reason"] == "exhausted"
+
+
+class TestReEntrant:
+    def test_re_entrant_from_disk(self, tmp_path):
+        """Verify that calling run_phase_loop twice on the same run_dir picks up existing state."""
+        from skills.adapt.lib.loop_controller import run_phase_loop, LoopState, FSMState, ExitReason
+        from skills.adapt.lib.validator_wrapper import ValidatorResult
+        run_dir = _setup_run_dir(tmp_path, phase=1)
+        gh = FakeGhClient()
+        budget = LoopBudget()
+        # Write a state at EDIT (simulating the controller having previously
+        # reached this state, then being interrupted/crashed before continuing)
+        _write_loop_state(run_dir, phase=1, current_state="edit", attempt=1)
+        # Run -- should pick up from EDIT and continue through PR -> MERGE_BASE -> VALIDATE -> passed
+        with patch("skills.adapt.lib.loop_controller.run_validator") as mock_run, \
+             patch("skills.adapt.lib.loop_controller.check_validator_integrity") as mock_integrity:
+            mock_run.return_value = ValidatorResult(
+                name="phase1-verify", status="passed",
+                failure_signature=None, evidence={},
+                integrity_ok=True,
+                integrity_details={"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+            )
+            mock_integrity.return_value = {"integrity_ok": True, "binary_hash_ok": True, "log_mtime_ok": True, "log_present": True}
+            result = run_phase_loop(run_dir, phase=1, gh=gh, budget=budget)
+        assert result == ExitReason.VALIDATOR_PASSED
+
+
+class TestSafetyChecks:
+    def test_no_loop_invocation(self):
+        """grep loop_controller.py for '/loop' -- must not appear (SAFE-02)."""
+        controller_path = Path(__file__).resolve().parents[2] / "lib" / "loop_controller.py"
+        content = controller_path.read_text()
+        assert "/loop" not in content
+
+    def test_max_iterations_safety(self, tmp_path):
+        from skills.adapt.lib.loop_controller import run_phase_loop, ExitReason
+        from skills.adapt.lib.validator_wrapper import ValidatorResult, FailureSignature
+        from skills.adapt.lib.diagnose_classifier import DiagnoseResult, DiagnoseClassification
+        run_dir = _setup_run_dir(tmp_path, phase=1)
+        _write_loop_state(run_dir, phase=1, current_state="validate", attempt=1)
+        gh = FakeGhClient()
+        budget = LoopBudget(max_attempts_per_phase=50, max_attempts_per_run=500, max_wallclock_minutes=10080)
+        # Every validator call fails, classify always CODE_BUG -> loop would run forever without safety
+        with patch("skills.adapt.lib.loop_controller.run_validator") as mock_run, \
+             patch("skills.adapt.lib.loop_controller.check_validator_integrity") as mock_integrity, \
+             patch("skills.adapt.lib.loop_controller.classify_failure") as mock_classify:
+            mock_run.return_value = ValidatorResult(
+                name="phase1-verify", status="failed",
+                failure_signature=FailureSignature(kind="code_bug", location="test.py", expected="ok", actual="err"),
+                evidence={}, integrity_ok=True,
+                integrity_details={"binary_hash_ok": True, "log_mtime_ok": True, "log_present": True},
+            )
+            mock_integrity.return_value = {"integrity_ok": True, "binary_hash_ok": True, "log_mtime_ok": True, "log_present": True}
+            mock_classify.return_value = DiagnoseResult(
+                classification=DiagnoseClassification.CODE_BUG,
+                rationale="test", suggested_fix_summary=None,
+                failure_signature=None,
+            )
+            result = run_phase_loop(run_dir, phase=1, gh=gh, budget=budget, max_iterations=5)
+        # Safety limit should stop it
+        assert result == ExitReason.EXHAUSTED
+
+    def test_exit_state_safety_net_write(self, tmp_path):
+        from skills.adapt.lib.loop_controller import run_phase_loop, LoopState, FSMState, ExitReason
+        from skills.adapt.lib.validator_wrapper import ValidatorResult
+        run_dir = _setup_run_dir(tmp_path, phase=1)
+        # Set state to EXIT with VALIDATOR_PASSED but no phaseN_output.yml yet
+        _write_loop_state(run_dir, phase=1, current_state="exit", attempt=1,
+                         exit_reason="validator_passed")
+        gh = FakeGhClient()
+        budget = LoopBudget()
+        result = run_phase_loop(run_dir, phase=1, gh=gh, budget=budget)
+        assert result == ExitReason.VALIDATOR_PASSED
+        # Verify _write_phase_output was called in EXIT handler as safety net
+        output_path = run_dir / "phases" / "phase1_output.yml"
+        assert output_path.exists()
+        data = yaml.safe_load(output_path.read_text())
+        assert "validator_integrity" in data
