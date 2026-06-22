@@ -1,0 +1,93 @@
+# Adapt Skill 重构 — Loop Engineering 化
+
+## What This Is
+
+把 `loongforge-plugin/skills/adapt`（当前的 6 阶段 HF→LoongForge 适配 skill）重构为一个显式 loop-engineering 工作流：用户在启动适配时给出 HF 模型实现 + ckpt + LoongForge 仓库 + Loong-Megatron 仓库四份输入，skill 在两个外部 GitHub 仓库（`Zachary-wW/LoongForge`、`Zachary-wW/Loong-Megatron`）上以 PR / issue / merge / rerun 闭环驱动适配，直到验证器全部通过。
+
+服务对象：把新模型适配到 LoongForge 的算法/工程同学。运行环境：Claude Code 命令行 + GitHub（`gh` CLI）+ 现有 phase validator。
+
+## Core Value
+
+**适配过程必须是闭环的**：每一次代码改动都走「PR → review → merge → 验证 → 失败建 issue → 修复 PR」循环，验证器是循环的真相源；除非所有 phase validator 全部 pass，循环不结束。一切为这个闭环服务。
+
+## Requirements
+
+### Validated
+
+- ✓ 现有 6 阶段（Phase 0 HF 解析 / Phase 1 组网 / Phase 2 权重转换 / Phase 3 loss-diff / Phase 4 feature-compat / Phase 5 KB）— 既存能力，保留作为 loop 内部步骤
+- ✓ `loongforge-phase-gate` 作为 phase 出口确定性闸门 — 既存
+- ✓ `phases/phaseN_output.yml` + `phases/phaseN/attempts.jsonl` 作为状态真相源 — 既存
+
+### Active
+
+- [ ] **REQ-INPUT-01**：在 skill 启动时收集四类输入：HF 实现代码 URL、ckpt+tokenizer URL、LoongForge 仓库 URL、Loong-Megatron 仓库 URL（含分支/路径），并校验
+- [ ] **REQ-INPUT-02**：把这四个 URL 落到 `run_inputs.yml` 新增字段，下游 phase 都从这里读
+- [ ] **REQ-LOOP-01**：定义并实现显式 loop 状态机 — `Probe → Edit → PR → Merge(base) → Validate → (Diagnose → Issue → Fix-PR → Merge → Rerun)*`
+- [ ] **REQ-LOOP-02**：状态机以 phase validator 失败为唯一进入修复支路的触发条件；validator 全 pass 才允许 loop 退出
+- [ ] **REQ-LOOP-03**：循环必须有显式终止条件（最大 attempt 数、人工 escalation 出口），避免无限 loop
+- [ ] **REQ-PR-01**：所有「适配代码」改动以 PR 形式提交到 LoongForge 或 Loong-Megatron，base 版本 PR 先 merge 才能进 validate
+- [ ] **REQ-PR-02**：PR 标题/正文/标签遵循固定模板（关联 run_id、phase、attempt、validator）
+- [ ] **REQ-ISSUE-01**：validator fail 时自动在对应外部仓库创建 issue，包含 fail 现场（log 摘要、attempts.jsonl 链接、复现命令）
+- [ ] **REQ-ISSUE-02**：每个 issue 必须由一个修复 PR 关联（"Fixes #N"），review→merge→rerun 才算闭环
+- [ ] **REQ-RERUN-01**：merge 后自动 rerun 该 phase 的 validator，记录新 attempt
+- [ ] **REQ-LOG-01**：每一轮 loop 写一条 `phases/phaseN/attempts.jsonl`，含 PR URL、issue URL、validator verdict、退出原因
+- [ ] **REQ-DOC-01**：SKILL.md / phase manuals / knowledge_base 同步更新，反映新工作流
+- [ ] **REQ-DOC-02**：在 skill 中显式引用 loop engineering 三篇文章（se.rpcx.io/04, /08, /12），把"反馈即设计""失败是信号""迭代而非线性"映射到具体步骤
+- [ ] **REQ-COMPAT-01**：保留对现有 `--resume <run_dir> --from-phase N` 的兼容
+- [ ] **REQ-TEST-01**：为新的 loop 控制器和 PR/issue helper 写 pytest，覆盖至少一次 fail→issue→fix-PR→pass 链路（可用 mock `gh`）
+
+### Out of Scope
+
+- 修改 LoongForge / Loong-Megatron 业务代码本身 — 这次只重构 plugin 侧的 adapt skill，外部仓库的 PR 由 skill 运行时产生
+- 替换 `loongforge-phase-gate` / phase validator 内部逻辑 — 只调用，不改判定标准
+- 引入新的验证维度（perf、可解释性等）— 现有 validator 集合就够
+- 多模型并行 / 多 run 调度 — 单次 skill 调用单个 run
+- 自建 GitHub App / webhook — 全程通过 `gh` CLI 同步驱动
+
+## Context
+
+- **现状**：`skills/adapt/SKILL.md` 已经是一份 160 行的 6 阶段编排手册，强调 phase agent 内部 loop（`attempts.jsonl`），但**没有把"通过 GitHub PR/issue 与外部仓库交互"作为一等公民**。当前的 retry 都是本地 phase-internal，外部协作面靠人工。
+- **本次重构动因**：算法同学希望把适配过程从"本地脚本黑盒"变成"GitHub 上可追溯的协作闭环"——每次失败都有 issue 可指、每次修复都有 PR 可 review，最终 merge 后才允许下一轮 validate。
+- **方法论锚点**：loop engineering（se.rpcx.io 第 4 / 8 / 12 篇）。把"循环 + 反馈"作为一等设计原则，而不是把适配当成线性流水线。
+- **外部依赖**：GitHub 仓库 `Zachary-wW/LoongForge`（主干 main）+ `Zachary-wW/Loong-Megatron`（分支 `loong-main/core_v0.15.0`）。运行时通过 `gh` CLI 操作 PR / issue。
+- **样板模型**：DeepSeek-V4-Flash（HF 路径 `transformers/models/deepseek_v4` + ckpt `deepseek-ai/DeepSeek-V4-Flash-Base`），用作 e2e 验证案例。
+
+## Constraints
+
+- **Tech stack**：Claude Code skill (Markdown + Python helpers) + Bash + `gh` CLI；不引入新语言/服务
+- **External access**：必须有对 LoongForge / Loong-Megatron 仓库的写权限（PR + issue + merge）；权限缺失要 fail-fast 且报错明确
+- **Compatibility**：保留 `--resume` 与现有 `phases/phaseN_output.yml` 契约
+- **Determinism**：loop 必须有显式上界（最大 attempts、最大总耗时），避免 token / GitHub API 失控
+- **Security**：PR/issue 正文不得包含 ckpt 路径以外的敏感信息（无 token、无内部域名）
+- **Plugin layout**：所有改动收敛在 `skills/adapt/`；`skills/adapt_eval` 不动
+- **Branch**：当前工作分支 `refactor/adapt-loop-engineering`（基于 main）
+
+## Key Decisions
+
+| Decision | Rationale | Outcome |
+|----------|-----------|---------|
+| 保留 Phase 0–5 作为 loop 内部步骤，不重新拆 phase | 减小重构面，复用既有 validator | — Pending |
+| PR/issue 仅作用于 LoongForge / Loong-Megatron 两个外部仓库；plugin 自身不走该 loop | 用户明确选择 | — Pending |
+| 验证器 = 现有 phase validators 的并集（phase1-verify / phase2-conversion / loss-diff / feature-compat / kb-consistency） | 用户明确选择，不新设统一验证器 | — Pending |
+| 跳过 `/gsd:map-codebase`，researcher 针对性读 `skills/adapt/` + se.rpcx.io 三篇 | 改动边界已经清晰 | — Pending |
+| 工作模式：YOLO + Coarse（4–5 phase）+ Inherit 模型 + Researcher/Plan-Checker/Verifier 全开 | 用户选择 | — Pending |
+
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd:transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd:complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
+---
+*Last updated: 2026-06-22 after initialization*
