@@ -97,6 +97,8 @@ class LoopState:
     last_validator_summary: dict | None = None
     issues_opened: list[int] = field(default_factory=list)
     issues_closed: list[int] = field(default_factory=list)
+    merge_commit_sha: str | None = None  # SHA of merged base PR commit (for SHA drift detection, RESUME-02)
+    head_sha: str | None = None           # SHA of the head branch at PR creation time
 
     @classmethod
     def from_disk(cls, run_dir: Path, phase: int) -> "LoopState":
@@ -127,6 +129,8 @@ class LoopState:
                     last_validator_summary=data.get("last_validator_summary"),
                     issues_opened=data.get("issues_opened", []),
                     issues_closed=data.get("issues_closed", []),
+                    merge_commit_sha=data.get("merge_commit_sha"),
+                    head_sha=data.get("head_sha"),
                 )
             except (ValueError, TypeError, yaml.YAMLError):
                 state = cls(
@@ -184,6 +188,8 @@ class LoopState:
             "last_validator_summary": self.last_validator_summary,
             "issues_opened": self.issues_opened,
             "issues_closed": self.issues_closed,
+            "merge_commit_sha": self.merge_commit_sha,
+            "head_sha": self.head_sha,
         }
         state_path.write_text(yaml.dump(data, sort_keys=False, default_flow_style=False))
 
@@ -429,6 +435,10 @@ def run_phase_loop(
             if repos_info and state.pr_number:
                 owner_repo = repos_info.get("loongforge_repo", "")
                 gh.merge_pr(owner_repo, state.pr_number)
+                # Record merge commit SHA for SHA drift detection on resume (RESUME-02)
+                pr_view = gh.view_pr(owner_repo, state.pr_number)
+                if pr_view and pr_view.get("merge_commit_sha"):
+                    state.merge_commit_sha = pr_view["merge_commit_sha"]
             state = _transition(state, FSMState.VALIDATE, run_dir, kind="merge_base")
             state.persist(run_dir)
             return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)

@@ -1028,6 +1028,44 @@ class TestFullCycle:
             assert "validator_integrity" not in str(e), f"VAL-04 hook rejected our integrity block: {e}"
 
 
+class TestLoopStateShaFields:
+    def test_loop_state_sha_fields_round_trip(self, tmp_path):
+        """LoopState with merge_commit_sha and head_sha persists and reloads correctly."""
+        from skills.adapt.lib.loop_controller import LoopState, FSMState
+        state = LoopState(
+            phase=2, attempt=2, current_state=FSMState.MERGE_BASE,
+            exit_reason=None, run_start_time="2026-01-01T00:00:00+00:00",
+            total_attempts_used=1,
+            merge_commit_sha="abc123def456",
+            head_sha="def456abc123",
+        )
+        state.persist(tmp_path)
+        reloaded = LoopState.from_disk(tmp_path, phase=2)
+        assert reloaded.merge_commit_sha == "abc123def456"
+        assert reloaded.head_sha == "def456abc123"
+
+    def test_loop_state_sha_fields_missing_in_yaml_defaults_none(self, tmp_path):
+        """LoopState.from_disk handles loop_state.yml without merge_commit_sha/head_sha (backward compat)."""
+        from skills.adapt.lib.loop_controller import LoopState, FSMState
+        phase_dir = tmp_path / "phases" / "phase1"
+        phase_dir.mkdir(parents=True, exist_ok=True)
+        # Write a loop_state.yml WITHOUT merge_commit_sha or head_sha keys
+        state_data = {
+            "phase": 1,
+            "attempt": 1,
+            "current_state": "validate",
+            "exit_reason": None,
+            "run_start_time": "2026-01-01T00:00:00+00:00",
+            "total_attempts_used": 0,
+        }
+        (phase_dir / "loop_state.yml").write_text(
+            yaml.dump(state_data, default_flow_style=False)
+        )
+        state = LoopState.from_disk(tmp_path, phase=1)
+        assert state.merge_commit_sha is None
+        assert state.head_sha is None
+
+
 class TestExhaustedExit:
     def test_exhausted_exit_writes_phase_output(self, tmp_path):
         from skills.adapt.lib.loop_controller import run_phase_loop, ExitReason

@@ -93,6 +93,7 @@ class FakePrRecord:
     labels: list[str]
     state: str  # "open" | "closed" | "merged"
     merged_sha: Optional[str] = None
+    merge_commit_sha: Optional[str] = None  # SHA of merged commit (for view_pr, RESUME-02)
     idempotency_key: Optional[str] = None
     comments: list[str] = field(default_factory=list)
 
@@ -147,6 +148,8 @@ class GhClient(Protocol):
                     run_id: str = "", phase: int = 0, outcome: str = "completed") -> GhResult: ...
     def find_by_idempotency_key(self, owner_repo: str, kind: str, key: str) -> Optional[int]: ...
     def find_by_dedup_key(self, owner_repo: str, dedup_key: str) -> Optional[int]: ...
+    def view_pr(self, owner_repo: str, number: int) -> Optional[dict]: ...
+    def view_issue(self, owner_repo: str, number: int) -> Optional[dict]: ...
 
 
 class RealGhClient:
@@ -410,6 +413,33 @@ class RealGhClient:
             pass
         return None
 
+    def view_pr(self, owner_repo: str, number: int) -> Optional[dict]:
+        """View a PR's current state via gh pr view --json. Returns None on 404 (RESUME-02)."""
+        r = self._run(["pr", "view", str(number), "-R", owner_repo,
+                       "--json", "state,merged,mergeCommit,headRefName"])
+        if r.returncode != 0:
+            return None
+        import json as _json
+        data = _json.loads(r.stdout)
+        return {
+            "state": data.get("state", "").upper(),  # "OPEN", "CLOSED", "MERGED"
+            "merged": bool(data.get("merged")),
+            "merge_commit_sha": (data.get("mergeCommit") or {}).get("oid"),
+            "head_branch": data.get("headRefName", ""),
+        }
+
+    def view_issue(self, owner_repo: str, number: int) -> Optional[dict]:
+        """View an issue's current state via gh issue view --json. Returns None on 404 (RESUME-02)."""
+        r = self._run(["issue", "view", str(number), "-R", owner_repo,
+                       "--json", "state"])
+        if r.returncode != 0:
+            return None
+        import json as _json
+        data = _json.loads(r.stdout)
+        return {
+            "state": data.get("state", "").upper(),  # "OPEN", "CLOSED"
+        }
+
 
 # ---------------------------------------------------------------------------
 # FakeGhClient -- in-memory state machine for tests
@@ -556,7 +586,7 @@ class FakeGhClient:
         return GhResult(0, f"https://github.com/{owner_repo}/pull/{number}", "")
 
     def merge_pr(self, owner_repo: str, number: int, method: str = "squash") -> GhResult:
-        """Merge a simulated PR. Transitions state to 'merged' and sets merged_sha."""
+        """Merge a simulated PR. Transitions state to 'merged' and sets merged_sha and merge_commit_sha."""
         self._record("merge_pr", owner_repo, number, method)
         key = (owner_repo, number)
         if key not in self._pr_store:
@@ -564,6 +594,7 @@ class FakeGhClient:
         pr = self._pr_store[key]
         pr.state = "merged"
         pr.merged_sha = f"fake-sha-{number}"
+        pr.merge_commit_sha = f"fake-sha-{number}"
         return GhResult(0, f"merged as fake-sha-{number}", "")
 
     # --- Issue lifecycle (Phase 2) ---
@@ -664,3 +695,26 @@ class FakeGhClient:
             if record.dedup_key == dedup_key and record.state == "open" and record.owner_repo == owner_repo:
                 return record.number
         return None
+
+    def view_pr(self, owner_repo: str, number: int) -> Optional[dict]:
+        """View a simulated PR's current state. Returns None if PR not found (RESUME-02)."""
+        self._record("view_pr", owner_repo, number)
+        record = self._pr_store.get((owner_repo, number))
+        if record is None:
+            return None
+        return {
+            "state": record.state.upper(),
+            "merged": record.state == "merged",
+            "merge_commit_sha": record.merge_commit_sha,
+            "head_branch": record.head,
+        }
+
+    def view_issue(self, owner_repo: str, number: int) -> Optional[dict]:
+        """View a simulated issue's current state. Returns None if issue not found (RESUME-02)."""
+        self._record("view_issue", owner_repo, number)
+        record = self._issue_store.get((owner_repo, number))
+        if record is None:
+            return None
+        return {
+            "state": record.state.upper(),
+        }

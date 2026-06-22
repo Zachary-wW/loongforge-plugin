@@ -529,3 +529,110 @@ class TestEndToEnd:
         # New PR has different key
         pr2 = fake._pr_store[(owner, 2)]
         assert pr2.idempotency_key != key
+
+
+# ---------------------------------------------------------------------------
+# TestViewMethods
+# ---------------------------------------------------------------------------
+
+class TestViewMethods:
+    def test_view_pr_returns_none_for_nonexistent(self):
+        """FakeGhClient.view_pr returns None for non-existent PR."""
+        fake = FakeGhClient()
+        result = fake.view_pr("Zachary-wW/LoongForge", 999)
+        assert result is None
+
+    def test_view_pr_returns_state_for_existing(self):
+        """FakeGhClient.view_pr returns dict with state/merged/merge_commit_sha/head_branch for existing PR."""
+        fake = FakeGhClient()
+        fake.open_pr(
+            "Zachary-wW/LoongForge",
+            "adapt/run1/phase1/attempt0", "develop",
+            run_id="run1", phase=1, attempt=0,
+        )
+        result = fake.view_pr("Zachary-wW/LoongForge", 1)
+        assert result is not None
+        assert result["state"] == "OPEN"
+        assert result["merged"] is False
+        assert result["merge_commit_sha"] is None
+        assert result["head_branch"] == "adapt/run1/phase1/attempt0"
+
+    def test_view_issue_returns_none_for_nonexistent(self):
+        """FakeGhClient.view_issue returns None for non-existent issue."""
+        fake = FakeGhClient()
+        result = fake.view_issue("Zachary-wW/LoongForge", 999)
+        assert result is None
+
+    def test_view_issue_returns_state_for_existing(self):
+        """FakeGhClient.view_issue returns dict with state for existing issue."""
+        fake = FakeGhClient()
+        fake.open_issue(
+            "Zachary-wW/LoongForge",
+            run_id="run1", phase=2, attempt=0,
+            validator_name="loss-diff",
+            failure_signature={"kind": "numerical_mismatch", "location": "model.py:L42"},
+            log_excerpt="error",
+            attempts_jsonl_link="http://example.com/log",
+            reproduction_cmd="python test.py",
+        )
+        result = fake.view_issue("Zachary-wW/LoongForge", 1)
+        assert result is not None
+        assert result["state"] == "OPEN"
+
+    def test_view_pr_reflects_state_after_merge(self):
+        """FakeGhClient.view_pr reflects state changes after merge_pr."""
+        fake = FakeGhClient()
+        fake.open_pr(
+            "Zachary-wW/LoongForge",
+            "adapt/run1/phase1/attempt0", "develop",
+            run_id="run1", phase=1, attempt=0,
+        )
+        fake.merge_pr("Zachary-wW/LoongForge", 1)
+        result = fake.view_pr("Zachary-wW/LoongForge", 1)
+        assert result is not None
+        assert result["state"] == "MERGED"
+        assert result["merged"] is True
+        assert result["merge_commit_sha"] is not None
+
+    def test_view_issue_reflects_state_after_close(self):
+        """FakeGhClient.view_issue reflects state changes after close_issue."""
+        fake = FakeGhClient()
+        fake.open_issue(
+            "Zachary-wW/LoongForge",
+            run_id="run1", phase=2, attempt=0,
+            validator_name="loss-diff",
+            failure_signature={"kind": "numerical_mismatch", "location": "model.py:L42"},
+            log_excerpt="error",
+            attempts_jsonl_link="http://example.com/log",
+            reproduction_cmd="python test.py",
+        )
+        fake.close_issue("Zachary-wW/LoongForge", 1, run_id="run1", phase=2)
+        result = fake.view_issue("Zachary-wW/LoongForge", 1)
+        assert result is not None
+        assert result["state"] == "CLOSED"
+
+    def test_view_pr_records_call_in_fake(self):
+        """FakeGhClient records view_pr calls."""
+        fake = FakeGhClient()
+        fake.open_pr(
+            "Zachary-wW/LoongForge",
+            "adapt/run1/phase1/attempt0", "develop",
+            run_id="run1", phase=1, attempt=0,
+        )
+        fake.view_pr("Zachary-wW/LoongForge", 1)
+        assert any(c.method == "view_pr" for c in fake.calls)
+
+    def test_view_issue_records_call_in_fake(self):
+        """FakeGhClient records view_issue calls."""
+        fake = FakeGhClient()
+        fake.open_issue(
+            "Zachary-wW/LoongForge",
+            run_id="run1", phase=2, attempt=0,
+            validator_name="loss-diff",
+            failure_signature={"kind": "numerical_mismatch", "location": "model.py:L42"},
+            log_excerpt="error",
+            attempts_jsonl_link="http://example.com/log",
+            reproduction_cmd="python test.py",
+        )
+        fake.view_issue("Zachary-wW/LoongForge", 1)
+        assert any(c.method == "view_issue" for c in fake.calls)
