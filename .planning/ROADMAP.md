@@ -20,15 +20,16 @@ Created: 2026-06-22
 ## Phase Details
 
 ### Phase 1: Loop Foundation — Contracts, Schemas & Safety Plumbing
-**Goal**: A run can collect the four URL inputs, persist them in extended schemas, pre-flight against GitHub, and any text bound for external repos passes through a hardened redactor — all without touching loop behavior. Establishes plumbing later phases layer on without rewriting.
+**Goal**: A run can collect the four URL inputs, persist them in extended schemas, pre-flight against GitHub (or skip in `--dry-run`), and any text bound for external repos passes through a hardened redactor — all without touching loop behavior. `FakeGhClient` interface is in place from day one so later phases can be developed and tested offline. Establishes plumbing later phases layer on without rewriting.
 **Depends on**: Nothing (foundation phase; maps to ARCHITECTURE B1/B2/B3)
-**Requirements**: INPUT-01, INPUT-02, INPUT-03, LOG-02, LOG-03, SAFE-01, SAFE-02, SAFE-03, COMPAT-02, COMPAT-03, TEST-02, TEST-03
+**Requirements**: INPUT-01, INPUT-02, INPUT-03, INPUT-04, LOG-02, LOG-03, SAFE-01, SAFE-02, SAFE-03, COMPAT-02, COMPAT-03, TEST-02, TEST-03
 **Success Criteria** (what must be TRUE):
   1. Running `loongforge-adapt --hf-impl-url ... --hf-ckpt-url ... --loongforge-repo ... --megatron-repo ...` produces a `run_inputs.yml` containing the new `repos:` and `loop:` blocks; a legacy invocation without those flags still produces a valid run dir (COMPAT-02 round-trip).
   2. Pre-flight fails fast with a precise error when `gh auth status` is not OK, write permissions on either external repo are missing, the ckpt URL is unreachable, or branch protection rules are incompatible with auto-merge.
   3. Pydantic v2 models reject `run_inputs.yml` v2 missing required `repos.*.url` fields and accept legacy v1 inputs unchanged; the round-trip test (TEST-03) passes for both shapes.
   4. Redaction filter strips `Bearer `, `hf_`, `ghp_`, `AKIA`, `/home/<user>/`, and configured internal-domain patterns from any string before any GitHub post; snapshot tests (TEST-02) against a contrived secrets corpus match expected output and a residual secret causes post-rejection.
   5. `validate_phase_completion.py` continues to pass legacy `phaseN_output.yml` without the `loop_engineering` flag (COMPAT-03), and the new `_validate_loop_evidence()` extension is callable but inert when the flag is absent; `attempts.jsonl` writes are append-only with no in-place edits (LOG-03).
+  6. `--dry-run` flag and `GhClient` interface are wired (INPUT-04): `loongforge-adapt --dry-run` produces a valid run dir with `repos:`/`loop:` blocks, preflight skips live-write probes but enforces URL shape + Pydantic schema, and a `FakeGhClient` stub (interface only, behavior fleshed out in Phase 2) is selected when `--dry-run` is present. This is the substrate the Phase 5 local-acceptance gate (ACC-01) runs on.
 **Plans**: TBD
 
 ### Phase 2: GitHub Helpers — PR & Issue Lifecycle
@@ -96,8 +97,8 @@ Created: 2026-06-22
 
 ## Coverage
 
-- **Total v1 requirements**: 46
-- **Mapped**: 46/46 ✓
+- **Total v1 requirements**: 47
+- **Mapped**: 47/47 ✓
 - **Orphans**: 0
 - **Duplicates**: 0
 
@@ -106,6 +107,7 @@ Created: 2026-06-22
 | INPUT-01 | 1 |
 | INPUT-02 | 1 |
 | INPUT-03 | 1 |
+| INPUT-04 | 1 |
 | LOOP-01 | 3 |
 | LOOP-02 | 3 |
 | LOOP-03 | 3 |
