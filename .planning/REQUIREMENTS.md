@@ -49,8 +49,8 @@ Date: 2026-06-22
 ### Logging & State
 
 - [ ] **LOG-01** — Every loop transition appends one row to `phases/phaseN/attempts.jsonl` with `ts`, `attempt`, `kind`, `pr_url`, `issue_url`, `validator`, `verdict`, `exit_reason`, `event_id`.
-- [ ] **LOG-02** — `phaseN_output.yml` extended with optional `pr`, `issues`, `loop`, `loop_engineering: true` blocks; legacy outputs (no flag) still pass `loongforge-phase-gate` unchanged.
-- [ ] **LOG-03** — Append-only writes, no in-place edits to `attempts.jsonl`.
+- [x] **LOG-02** — `phaseN_output.yml` extended with optional `pr`, `issues`, `loop`, `loop_engineering: true` blocks; legacy outputs (no flag) still pass `loongforge-phase-gate` unchanged.
+- [x] **LOG-03** — Append-only writes, no in-place edits to `attempts.jsonl`.
 
 ### Resume & Idempotency
 
@@ -60,7 +60,7 @@ Date: 2026-06-22
 
 ### Safety
 
-- [ ] **SAFE-01** — Mandatory redaction filter on every body posted to GitHub: regex sweep for `Bearer `, `hf_`, `ghp_`, `AKIA`, `/home/<user>/`, internal domains; reject post if any pattern remains after redaction.
+- [x] **SAFE-01** — Mandatory redaction filter on every body posted to GitHub: regex sweep for `Bearer `, `hf_`, `ghp_`, `AKIA`, `/home/<user>/`, internal domains; reject post if any pattern remains after redaction.
 - [ ] **SAFE-02** — `loop_controller.py` is a Python module — never invokes `/loop`; lint check fails build if `/loop` appears in skill code paths.
 - [ ] **SAFE-03** — Bulk log content externalized to files; only excerpts in chat context to avoid in-session bloat.
 
@@ -80,8 +80,8 @@ Date: 2026-06-22
 ### Tests
 
 - [ ] **TEST-01** — pytest e2e covering `fail → diagnose → issue → fix-PR → review → merge → pass` on Phase 1 with mocked `gh` (FakeGhClient).
-- [ ] **TEST-02** — Snapshot tests on the redaction filter against a contrived secrets corpus.
-- [ ] **TEST-03** — Round-trip test for `run_inputs.yml v2` (with and without `repos:` block) exercising backward compat.
+- [x] **TEST-02** — Snapshot tests on the redaction filter against a contrived secrets corpus.
+- [x] **TEST-03** — Round-trip test for `run_inputs.yml v2` (with and without `repos:` block) exercising backward compat.
 - [ ] **TEST-04** — Resume test: kill mid-Diagnose, re-invoke with `--resume`, assert no duplicate issue/PR created.
 
 ### Acceptance Handoff (local-only milestone target)
@@ -134,12 +134,12 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | VAL-04 | Phase 3 | Pending |
 | VAL-05 | Phase 3 | Pending |
 | LOG-01 | Phase 3 | Pending |
-| LOG-02 | Phase 1 | Pending |
-| LOG-03 | Phase 1 | Pending |
+| LOG-02 | Phase 1 | Complete |
+| LOG-03 | Phase 1 | Complete |
 | RESUME-01 | Phase 4 | Pending |
 | RESUME-02 | Phase 4 | Pending |
 | RESUME-03 | Phase 2 | Pending |
-| SAFE-01 | Phase 1 | Pending |
+| SAFE-01 | Phase 1 | Complete |
 | SAFE-02 | Phase 1 | Pending |
 | SAFE-03 | Phase 1 | Pending |
 | DOC-01 | Phase 5 | Pending |
@@ -150,6 +150,6 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | COMPAT-02 | Phase 1 | Pending |
 | COMPAT-03 | Phase 1 | Pending |
 | TEST-01 | Phase 4 | Pending |
-| TEST-02 | Phase 1 | Pending |
-| TEST-03 | Phase 1 | Pending |
+| TEST-02 | Phase 1 | Complete |
+| TEST-03 | Phase 1 | Complete |
 | TEST-04 | Phase 4 | Pending |

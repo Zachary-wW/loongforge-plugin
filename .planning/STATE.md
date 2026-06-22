@@ -1,3 +1,16 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
+last_updated: "2026-06-22T08:12:08.392Z"
+progress:
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 4
+  completed_plans: 0
+---
+
 # STATE.md — Adapt Skill Loop-Engineering Refactor
 
 > Project memory. Updated at phase transitions, plan completions, and major decisions.
@@ -18,6 +31,9 @@
 
 ## Current Position
 
+Phase: 01 (loop-foundation-contracts-schemas-safety-plumbing) — EXECUTING
+Plan: 2 of 4
+
 - **Milestone**: Adapt Skill Loop-Engineering Refactor (v1)
 - **Phase**: Not started (roadmap just created)
 - **Plan**: None
@@ -37,12 +53,16 @@
 | Plans complete | 0 |
 
 ---
+| Phase 01 P01 | 6min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
 ### Key Decisions (from PROJECT.md)
 
 - Preserve existing Phase 0–5 as inner steps of the new outer loop; do not re-cut phases.
+- **Plan 01-01**: Pydantic v2 models use extra='forbid' except PrBlockOutput/IssuesBlockOutput (extra='ignore') for LOG-02 forward-compat.
+- **Plan 01-01**: LoopBudget Field ceilings (le=50, le=500, le=10_080) enforce determinism at parse time, preventing loop runaway before controller runs.
+- **Plan 01-01**: Redactor uses 10 hardcoded patterns + YAML-configurable internal domains; residual post-check returns accept=False if any pattern survives.
 - PR/issue loop applies only to the two external repos (LoongForge + Loong-Megatron); plugin itself is not part of the loop.
 - Validator set frozen: union of existing per-phase validators (`phase1-verify`, `phase2-conversion`, `loss-diff`, `feature-compat`, `kb-consistency`); no unified validator.
 - Skip `/gsd:map-codebase`; researcher targets `skills/adapt/` + se.rpcx.io 04/08/12.
@@ -86,4 +106,4 @@ None.
 
 ---
 
-*Last updated: 2026-06-22 after roadmap creation.*
+*Last updated: 2026-06-22 after plan 01-01 execution.*
