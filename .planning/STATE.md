@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-06-22T10:47:41.207Z"
+last_updated: "2026-06-22T10:58:14.083Z"
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # STATE.md — Adapt Skill Loop-Engineering Refactor
@@ -23,7 +23,7 @@ progress:
 
 **Core Value**: The adaptation process MUST be a closed loop — every code change goes through PR → review → merge → validate → (on fail) issue → fix-PR; the loop only exits when all phase validators pass. Everything else (schemas, helpers, docs) serves this loop.
 
-**Current Focus**: Phase 2 — GitHub Helpers (PR/issue lifecycle with idempotency and templates).
+**Current Focus**: Phase 2 complete — ready for Phase 3 (loop controller).
 
 **Working Branch**: `refactor/adapt-loop-engineering` (per PROJECT.md).
 
@@ -31,14 +31,14 @@ progress:
 
 ## Current Position
 
-Phase: 02 (github-helpers-pr-issue-lifecycle) — EXECUTING
-Plan: 2 of 2 (Plan 01 complete)
+Phase: 02 (github-helpers-pr-issue-lifecycle) — COMPLETE
+Plan: 2 of 2 (both plans complete)
 
 - **Milestone**: Adapt Skill Loop-Engineering Refactor (v1)
-- **Phase**: Executing
-- **Plan**: Plan 01 complete (idempotency + templates); Plan 02 next
-- **Status**: Phase 2 Plan 01 complete, advancing to Plan 02
-- **Progress**: `[===-------] 1/5 phases, 5/6 plans complete`
+- **Phase**: Complete
+- **Plan**: Both plans complete (idempotency + templates + lifecycle methods + state machine)
+- **Status**: Phase 2 fully complete, ready for Phase 3
+- **Progress**: `[==--------] 2/5 phases, 6/6 plans complete`
 
 ---
 
@@ -58,6 +58,7 @@ Plan: 2 of 2 (Plan 01 complete)
 | Phase 01 P03 | 6min | 1 tasks | 2 files |
 | Phase 01 P04 | 3min | 2 tasks | 4 files |
 | Phase 02 P01 | 6min | 2 tasks | 4 files |
+| Phase 02 P02 | 7min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,9 @@ Plan: 2 of 2 (Plan 01 complete)
 - **Plan 01-04**: First /loop lint regex tightened to ^/loop\b (line-start) to avoid false-flagging SKILL.md prose.
 - **Plan 02-01**: Visible [adapt-skill-key: hex] fallback line before HTML comment addresses GitHub search indexing uncertainty for HTML comments.
 - **Plan 02-01**: Idempotency key and dedup key use different input tuples and serve different purposes -- must never be conflated (run_id:phase:attempt:action_kind vs phase:validator:kind:location).
+- **Plan 02-02**: Protocol signatures for open_pr/open_issue changed to template-driven params; callers cannot bypass template constraints.
+- **Plan 02-02**: find_by_dedup_key and find_by_idempotency_key are separate methods: dedup key for cross-attempt issue dedup, idempotency key for crash-resume.
+- **Plan 02-02**: Human commit detection uses git log --format=%ae per D-01; open_pr posts /agent-resume comment on existing PR before raising HumanCommitError.
 - PR/issue loop applies only to the two external repos (LoongForge + Loong-Megatron); plugin itself is not part of the loop.
 - Validator set frozen: union of existing per-phase validators (`phase1-verify`, `phase2-conversion`, `loss-diff`, `feature-compat`, `kb-consistency`); no unified validator.
 - Skip `/gsd:map-codebase`; researcher targets `skills/adapt/` + se.rpcx.io 04/08/12.
@@ -102,12 +106,12 @@ None.
 
 ## Session Continuity
 
-**Last session ended**: 2026-06-22, after Phase 2 Plan 01 complete (idempotency + templates).
+**Last session ended**: 2026-06-22, after Phase 2 Plan 02 complete (lifecycle methods + state machine).
 
 **Next session should**:
 
-1. Execute Phase 2 Plan 02 (RealGhClient lifecycle methods + FakeGhClient state machine).
-2. Run invariant: `python3 -m pytest skills/adapt/tests/lib/ -x -q` (139 tests should pass).
+1. Execute Phase 3 (loop controller) after running `/gsd:plan-phase 3`.
+2. Run invariant: `python3 -m pytest skills/adapt/tests/lib/ -x -q` (170 tests should pass).
 
 **Files of record**:
 
@@ -119,4 +123,4 @@ None.
 
 ---
 
-*Last updated: 2026-06-22 after Phase 2 Plan 01 complete.*
+*Last updated: 2026-06-22 after Phase 2 Plan 02 complete.*

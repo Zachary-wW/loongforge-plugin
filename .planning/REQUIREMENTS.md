@@ -24,19 +24,19 @@ Date: 2026-06-22
 
 ### PR Lifecycle
 
-- [ ] **PR-01** — All adapt code changes land via `gh pr create` on either LoongForge or Loong-Megatron; direct push to default branch is forbidden.
-- [ ] **PR-02** — Base PR must be merged before any validator runs; merge uses `gh pr merge --squash` (or repo-default merge style).
+- [x] **PR-01** — All adapt code changes land via `gh pr create` on either LoongForge or Loong-Megatron; direct push to default branch is forbidden.
+- [x] **PR-02** — Base PR must be merged before any validator runs; merge uses `gh pr merge --squash` (or repo-default merge style).
 - [x] **PR-03** — PR title/body/labels follow templated format containing `run_id`, `phase`, `attempt`, validator name, and a hidden `<!-- adapt-skill: ... -->` idempotency footer.
-- [ ] **PR-04** — Branch naming: `adapt/<run_id>/phase<N>/attempt<K>` on both external repos.
-- [ ] **PR-05** — Force-push to a branch that contains non-bot commits is forbidden; on detected human commit, loop pauses and posts a comment requesting `/agent-resume`.
-- [ ] **PR-06** — Validator-path edits (paths under `references/phases/phaseN/verify.md`, `loongforge-phase-gate`, validator scripts) are auto-rejected and converted to `human_needed` escalation.
+- [x] **PR-04** — Branch naming: `adapt/<run_id>/phase<N>/attempt<K>` on both external repos.
+- [x] **PR-05** — Force-push to a branch that contains non-bot commits is forbidden; on detected human commit, loop pauses and posts a comment requesting `/agent-resume`.
+- [x] **PR-06** — Validator-path edits (paths under `references/phases/phaseN/verify.md`, `loongforge-phase-gate`, validator scripts) are auto-rejected and converted to `human_needed` escalation.
 
 ### Issue Lifecycle
 
 - [x] **ISSUE-01** — On validator failure (after rerun-for-flake threshold), open a `gh issue` containing structured `failure_signature`, log excerpt (last N lines + collapsed full log), `attempts.jsonl` link, and reproduction command.
 - [x] **ISSUE-02** — Every issue is closed by a fix-PR carrying `Fixes #N`; merge of fix-PR auto-closes issue.
 - [x] **ISSUE-03** — Issue dedup: same `(phase, validator_name, failure_signature)` reuses the open issue and appends a comment instead of opening a duplicate (basic version; advanced fingerprinting deferred).
-- [ ] **ISSUE-04** — All bot-created PRs/issues carry labels `loongforge-adapt`, `run-<id>`, `phase-<N>`; on run completion, auxiliary issues closed with summary linking digest.
+- [x] **ISSUE-04** — All bot-created PRs/issues carry labels `loongforge-adapt`, `run-<id>`, `phase-<N>`; on run completion, auxiliary issues closed with summary linking digest.
 
 ### Validator Invocation
 
@@ -119,16 +119,16 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | LOOP-03 | Phase 3 | Pending |
 | LOOP-04 | Phase 3 | Pending |
 | LOOP-05 | Phase 3 | Pending |
-| PR-01 | Phase 2 | Pending |
-| PR-02 | Phase 2 | Pending |
+| PR-01 | Phase 2 | Complete |
+| PR-02 | Phase 2 | Complete |
 | PR-03 | Phase 2 | Complete |
-| PR-04 | Phase 2 | Pending |
-| PR-05 | Phase 2 | Pending |
-| PR-06 | Phase 2 | Pending |
+| PR-04 | Phase 2 | Complete |
+| PR-05 | Phase 2 | Complete |
+| PR-06 | Phase 2 | Complete |
 | ISSUE-01 | Phase 2 | Complete |
 | ISSUE-02 | Phase 2 | Complete |
 | ISSUE-03 | Phase 2 | Complete |
-| ISSUE-04 | Phase 2 | Pending |
+| ISSUE-04 | Phase 2 | Complete |
 | VAL-01 | Phase 3 | Pending |
 | VAL-02 | Phase 3 | Pending |
 | VAL-03 | Phase 3 | Pending |
