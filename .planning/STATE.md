@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-06-22T14:05:55.496Z"
+last_updated: "2026-06-22T16:23:11.461Z"
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 10
+  completed_plans: 9
 ---
 
 # STATE.md — Adapt Skill Loop-Engineering Refactor
@@ -31,8 +31,8 @@ progress:
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
+Phase: 04 (wiring-phase-agents-resume-e2e) — EXECUTING
+Plan: 2 of 2
 
 - **Milestone**: Adapt Skill Loop-Engineering Refactor (v1)
 - **Phase**: Complete
@@ -61,6 +61,7 @@ Plan: Not started
 | Phase 02 P02 | 7min | 3 tasks | 2 files |
 | Phase 03 P01 | 7 | 3 tasks | 6 files |
 | Phase 03 P02 | 9 | 2 tasks | 2 files |
+| Phase 04 P01 | 9min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,9 @@ Plan: Not started
 - **Plan 03-01**: FakeGhClient._run added with _sha_store for simulated SHA lookups.
 - **Plan 03-01**: FailureSignature/ValidatorResult use @dataclass not Pydantic per RESEARCH: internal-only models.
 - **Plan 03-01**: classify_failure counts consecutive same-kind+location from tail of attempts_history (reversed).
+- **Plan 04-01**: Force-push detection subsumed by SHA drift check; dedicated force_push mismatch type reserved for v1 when commit-author timestamps are available.
+- **Plan 04-01**: reconcile_remote_state only checks loongforge_repo (both PRs and issues opened there); megatron_repo not reconciled.
+- **Plan 04-01**: Reconciliation skipped when --from-phase specified (explicit reset takes precedence over stale state detection).
 
 ### Active TODOs
 
@@ -111,12 +115,12 @@ None.
 
 ## Session Continuity
 
-**Last session ended**: 2026-06-22, after Phase 2 Plan 02 complete (lifecycle methods + state machine).
+**Last session ended**: 2026-06-22, after Phase 4 Plan 01 complete (resume reconciliation + view methods + SHA drift detection).
 
 **Next session should**:
 
-1. Execute Phase 3 (loop controller) after running `/gsd:plan-phase 3`.
-2. Run invariant: `python3 -m pytest skills/adapt/tests/lib/ -x -q` (170 tests should pass).
+1. Execute Phase 4 Plan 02 (wiring phase agents for real execution with resume capability).
+2. Run invariant: `python3 -m pytest skills/adapt/tests/lib/ -x -q --ignore=skills/adapt/tests/lib/test_loop_e2e.py` (307+ tests should pass).
 
 **Files of record**:
 
@@ -128,4 +132,4 @@ None.
 
 ---
 
-*Last updated: 2026-06-22 after Phase 2 Plan 02 complete.*
+*Last updated: 2026-06-22 after Phase 4 Plan 01 complete.*

@@ -54,8 +54,8 @@ Date: 2026-06-22
 
 ### Resume & Idempotency
 
-- [ ] **RESUME-01** — `--resume <run_dir> [--from-phase N]` continues to work; controller reconstructs FSM state from last `attempts.jsonl` row plus `phaseN_output.yml`.
-- [ ] **RESUME-02** — On resume, controller reconciles every PR/issue id against `gh`; mismatches force `--reset-phase N` rather than silent proceed.
+- [x] **RESUME-01** — `--resume <run_dir> [--from-phase N]` continues to work; controller reconstructs FSM state from last `attempts.jsonl` row plus `phaseN_output.yml`.
+- [x] **RESUME-02** — On resume, controller reconciles every PR/issue id against `gh`; mismatches force `--reset-phase N` rather than silent proceed.
 - [x] **RESUME-03** — Idempotency keys (`sha256(run_id + phase + attempt + action_kind)`) prevent duplicate PR/issue creation across crash-resume.
 
 ### Safety
@@ -82,7 +82,7 @@ Date: 2026-06-22
 - [ ] **TEST-01** — pytest e2e covering `fail → diagnose → issue → fix-PR → review → merge → pass` on Phase 1 with mocked `gh` (FakeGhClient).
 - [x] **TEST-02** — Snapshot tests on the redaction filter against a contrived secrets corpus.
 - [x] **TEST-03** — Round-trip test for `run_inputs.yml v2` (with and without `repos:` block) exercising backward compat.
-- [ ] **TEST-04** — Resume test: kill mid-Diagnose, re-invoke with `--resume`, assert no duplicate issue/PR created.
+- [x] **TEST-04** — Resume test: kill mid-Diagnose, re-invoke with `--resume`, assert no duplicate issue/PR created.
 
 ### Acceptance Handoff (local-only milestone target)
 
@@ -137,8 +137,8 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | LOG-01 | Phase 3 | Complete |
 | LOG-02 | Phase 1 | Complete |
 | LOG-03 | Phase 1 | Complete |
-| RESUME-01 | Phase 4 | Pending |
-| RESUME-02 | Phase 4 | Pending |
+| RESUME-01 | Phase 4 | Complete |
+| RESUME-02 | Phase 4 | Complete |
 | RESUME-03 | Phase 2 | Complete |
 | SAFE-01 | Phase 1 | Complete |
 | SAFE-02 | Phase 1 | Complete |
@@ -153,4 +153,4 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | TEST-01 | Phase 4 | Pending |
 | TEST-02 | Phase 1 | Complete |
 | TEST-03 | Phase 1 | Complete |
-| TEST-04 | Phase 4 | Pending |
+| TEST-04 | Phase 4 | Complete |
