@@ -19,8 +19,8 @@ Date: 2026-06-22
 - [ ] **LOOP-01** — Implement explicit FSM `Probe → Edit → PR → Merge(base) → Validate → (Diagnose → Issue → Fix-PR → Review → Merge → Rerun)*` driven by a Python loop controller, callable per phase.
 - [ ] **LOOP-02** — Validator-pass is the only positive exit; FSM exit reasons enumerated: `validator_passed | validator_passed_after_fix | exhausted | escalated | base_only | human_needed`.
 - [ ] **LOOP-03** — Three-axis termination budget: `max_attempts_per_phase` (default 5), `max_attempts_per_run` (default 25), `max_wallclock_minutes` (default 240); breach forces `autonomous_blocked`/`human_needed` exit, never `passed`.
-- [ ] **LOOP-04** — Diagnose step is a separate sub-agent distinct from Edit agent (maker ≠ checker, rpcx.io/12 P16); Diagnose is read-only and emits classification `code-bug | flaky | wrong-direction | needs-human`.
-- [ ] **LOOP-05** — `wrong-direction` classification short-circuits the loop to `human_needed`, writing `phases/phaseN/escalation.md` with blockers + tried fixes.
+- [x] **LOOP-04** — Diagnose step is a separate sub-agent distinct from Edit agent (maker ≠ checker, rpcx.io/12 P16); Diagnose is read-only and emits classification `code-bug | flaky | wrong-direction | needs-human`.
+- [x] **LOOP-05** — `wrong-direction` classification short-circuits the loop to `human_needed`, writing `phases/phaseN/escalation.md` with blockers + tried fixes.
 
 ### PR Lifecycle
 
@@ -40,11 +40,11 @@ Date: 2026-06-22
 
 ### Validator Invocation
 
-- [ ] **VAL-01** — Validator wrapper calls existing per-phase validators (`phase1-verify | phase2-conversion | loss-diff | feature-compat | kb-consistency`) on the merged HEAD; no validator logic is rewritten.
-- [ ] **VAL-02** — Validators emit a `failure_signature: {kind, location, expected, actual}` structured record (or schema-equivalent). Free-text-only failures cause Diagnose to escalate, not guess.
-- [ ] **VAL-03** — Phase 3 / Phase 4 near-threshold failures auto-rerun N times (default 3) before being treated as "real" failures; `attempts.jsonl` distinguishes `flaky` from `failed`.
-- [ ] **VAL-04** — Validator integrity check: validator binary hash + log mtime ≥ attempt timestamp + log present in `phases/phaseN/logs/`. `loongforge-phase-gate` rejects `passed` if any check fails.
-- [ ] **VAL-05** — Cross-repo coordination: LoongForge PR body must pin Megatron commit SHA; validator records `LOONG_MEGATRON_SHA` and refuses if mismatch.
+- [x] **VAL-01** — Validator wrapper calls existing per-phase validators (`phase1-verify | phase2-conversion | loss-diff | feature-compat | kb-consistency`) on the merged HEAD; no validator logic is rewritten.
+- [x] **VAL-02** — Validators emit a `failure_signature: {kind, location, expected, actual}` structured record (or schema-equivalent). Free-text-only failures cause Diagnose to escalate, not guess.
+- [x] **VAL-03** — Phase 3 / Phase 4 near-threshold failures auto-rerun N times (default 3) before being treated as "real" failures; `attempts.jsonl` distinguishes `flaky` from `failed`.
+- [x] **VAL-04** — Validator integrity check: validator binary hash + log mtime ≥ attempt timestamp + log present in `phases/phaseN/logs/`. `loongforge-phase-gate` rejects `passed` if any check fails.
+- [x] **VAL-05** — Cross-repo coordination: LoongForge PR body must pin Megatron commit SHA; validator records `LOONG_MEGATRON_SHA` and refuses if mismatch.
 
 ### Logging & State
 
@@ -117,8 +117,8 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | LOOP-01 | Phase 3 | Pending |
 | LOOP-02 | Phase 3 | Pending |
 | LOOP-03 | Phase 3 | Pending |
-| LOOP-04 | Phase 3 | Pending |
-| LOOP-05 | Phase 3 | Pending |
+| LOOP-04 | Phase 3 | Complete |
+| LOOP-05 | Phase 3 | Complete |
 | PR-01 | Phase 2 | Complete |
 | PR-02 | Phase 2 | Complete |
 | PR-03 | Phase 2 | Complete |
@@ -129,11 +129,11 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | ISSUE-02 | Phase 2 | Complete |
 | ISSUE-03 | Phase 2 | Complete |
 | ISSUE-04 | Phase 2 | Complete |
-| VAL-01 | Phase 3 | Pending |
-| VAL-02 | Phase 3 | Pending |
-| VAL-03 | Phase 3 | Pending |
-| VAL-04 | Phase 3 | Pending |
-| VAL-05 | Phase 3 | Pending |
+| VAL-01 | Phase 3 | Complete |
+| VAL-02 | Phase 3 | Complete |
+| VAL-03 | Phase 3 | Complete |
+| VAL-04 | Phase 3 | Complete |
+| VAL-05 | Phase 3 | Complete |
 | LOG-01 | Phase 3 | Pending |
 | LOG-02 | Phase 1 | Complete |
 | LOG-03 | Phase 1 | Complete |

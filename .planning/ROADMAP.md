@@ -61,7 +61,7 @@ Created: 2026-06-22
   4. Phase 3/Phase 4 near-threshold failures auto-rerun N=3 times before being treated as real failures; `attempts.jsonl` distinguishes `flaky` from `failed` (VAL-03); LoongForge PR body pins a Megatron commit SHA, the validator records and asserts `LOONG_MEGATRON_SHA`, and SHA mismatch refuses validation rather than reporting a false code failure (VAL-05).
   5. Every loop transition appends exactly one row to `phases/phaseN/attempts.jsonl` containing `ts`, `attempt`, `kind`, `pr_url`, `issue_url`, `validator`, `verdict`, `exit_reason`, and `event_id` (LOG-01); FSM is fully driven by re-reading disk state, never in-memory conversation (LOOP-01).
 **Plans**: 2 plans
-- [ ] 03-01-PLAN.md — Validator wrapper + Diagnose classifier + repair template + VAL-04 hook (Wave 1)
+- [x] 03-01-PLAN.md — Validator wrapper + Diagnose classifier + repair template + VAL-04 hook (Wave 1)
 - [ ] 03-02-PLAN.md — FSM loop controller with budget enforcement and state persistence (Wave 2)
 
 ### Phase 4: Wiring — Phase Agents, Resume & E2E

@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-06-22T11:08:05.054Z"
+last_updated: "2026-06-22T13:46:05.436Z"
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 8
+  completed_plans: 7
 ---
 
 # STATE.md — Adapt Skill Loop-Engineering Refactor
@@ -31,8 +31,8 @@ progress:
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
+Phase: 03 (loop-controller-fsm-budgets-validator-discipline) — EXECUTING
+Plan: 2 of 2
 
 - **Milestone**: Adapt Skill Loop-Engineering Refactor (v1)
 - **Phase**: Complete
@@ -59,6 +59,7 @@ Plan: Not started
 | Phase 01 P04 | 3min | 2 tasks | 4 files |
 | Phase 02 P01 | 6min | 2 tasks | 4 files |
 | Phase 02 P02 | 7min | 3 tasks | 2 files |
+| Phase 03 P01 | 7 | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,9 @@ Plan: Not started
 - Validator set frozen: union of existing per-phase validators (`phase1-verify`, `phase2-conversion`, `loss-diff`, `feature-compat`, `kb-consistency`); no unified validator.
 - Skip `/gsd:map-codebase`; researcher targets `skills/adapt/` + se.rpcx.io 04/08/12.
 - Mode: yolo + coarse + inherit-model + researcher/plan-checker/verifier all on.
+- **Plan 03-01**: FakeGhClient._run added with _sha_store for simulated SHA lookups.
+- **Plan 03-01**: FailureSignature/ValidatorResult use @dataclass not Pydantic per RESEARCH: internal-only models.
+- **Plan 03-01**: classify_failure counts consecutive same-kind+location from tail of attempts_history (reversed).
 
 ### Active TODOs
 
