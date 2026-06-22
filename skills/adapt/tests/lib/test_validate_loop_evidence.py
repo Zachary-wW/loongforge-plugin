@@ -164,3 +164,106 @@ print("OK")
         )
         assert result.returncode == 0, f"Legacy no-pydantic check failed: {result.stderr}"
         assert "OK" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# VAL-04: validator integrity checks in _validate_loop_evidence
+# ---------------------------------------------------------------------------
+
+class TestValidatorIntegrityCheck:
+    """VAL-04: When exit_reason is validator_passed, integrity must hold.
+    COMPAT-03: legacy outputs still pass without loop_engineering flag."""
+
+    def test_passed_with_valid_integrity(self, tmp_path: Path) -> None:
+        """loop_engineering=true, exit_reason=validator_passed, integrity_ok=True -> passes."""
+        data = _base_phase1_output()
+        data["loop_engineering"] = True
+        data["loop"] = {
+            "attempts": 1,
+            "max_attempts": 5,
+            "exit_reason": "validator_passed",
+            "attempts_journal": "",
+        }
+        data["validator_integrity"] = {
+            "binary_hash_ok": True,
+            "log_mtime_ok": True,
+            "log_present": True,
+            "integrity_ok": True,
+        }
+        _write(tmp_path, 1, data)
+        assert validate_phase_output(tmp_path, 1) is None
+
+    def test_passed_with_missing_integrity(self, tmp_path: Path) -> None:
+        """loop_engineering=true, exit_reason=validator_passed, no validator_integrity key -> raises ValueError."""
+        data = _base_phase1_output()
+        data["loop_engineering"] = True
+        data["loop"] = {
+            "attempts": 1,
+            "max_attempts": 5,
+            "exit_reason": "validator_passed",
+            "attempts_journal": "",
+        }
+        # No validator_integrity key at all
+        _write(tmp_path, 1, data)
+        with pytest.raises(ValueError, match="validator_integrity"):
+            validate_phase_output(tmp_path, 1)
+
+    def test_passed_with_failed_integrity(self, tmp_path: Path) -> None:
+        """loop_engineering=true, exit_reason=validator_passed, integrity_ok=False -> raises ValueError."""
+        data = _base_phase1_output()
+        data["loop_engineering"] = True
+        data["loop"] = {
+            "attempts": 1,
+            "max_attempts": 5,
+            "exit_reason": "validator_passed",
+            "attempts_journal": "",
+        }
+        data["validator_integrity"] = {
+            "binary_hash_ok": False,
+            "log_mtime_ok": True,
+            "log_present": True,
+            "integrity_ok": False,
+        }
+        _write(tmp_path, 1, data)
+        with pytest.raises(ValueError, match="validator_integrity"):
+            validate_phase_output(tmp_path, 1)
+
+    def test_passed_after_fix_with_valid_integrity(self, tmp_path: Path) -> None:
+        """exit_reason=validator_passed_after_fix, integrity_ok=True -> passes."""
+        data = _base_phase1_output()
+        data["loop_engineering"] = True
+        data["loop"] = {
+            "attempts": 2,
+            "max_attempts": 5,
+            "exit_reason": "validator_passed_after_fix",
+            "attempts_journal": "",
+        }
+        data["validator_integrity"] = {
+            "binary_hash_ok": True,
+            "log_mtime_ok": True,
+            "log_present": True,
+            "integrity_ok": True,
+        }
+        _write(tmp_path, 1, data)
+        assert validate_phase_output(tmp_path, 1) is None
+
+    def test_non_passed_exit_ignores_integrity(self, tmp_path: Path) -> None:
+        """exit_reason=exhausted, no validator_integrity -> passes (integrity irrelevant)."""
+        data = _base_phase1_output()
+        data["loop_engineering"] = True
+        data["loop"] = {
+            "attempts": 5,
+            "max_attempts": 5,
+            "exit_reason": "exhausted",
+            "attempts_journal": "",
+        }
+        # No validator_integrity -- should still pass for non-passed exit reasons
+        _write(tmp_path, 1, data)
+        assert validate_phase_output(tmp_path, 1) is None
+
+    def test_legacy_still_passes(self, tmp_path: Path) -> None:
+        """COMPAT-03 regression: legacy output without loop_engineering flag still passes."""
+        data = _base_phase1_output()
+        # No loop_engineering, no validator_integrity
+        _write(tmp_path, 1, data)
+        assert validate_phase_output(tmp_path, 1) is None
