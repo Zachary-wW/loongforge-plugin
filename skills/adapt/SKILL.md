@@ -140,6 +140,10 @@ Do not use /loop for phase-local repair loops. Phase-local loops are owned by th
 
 Do not use `/loop` to poll Claude Code background tasks; the harness notifies when tracked tasks complete.
 
+## Bulk Log Externalization (SAFE-03)
+
+Phase agents MUST externalize bulk log content (validator stdout/stderr, training logs, NCCL traces) to files under `phases/phaseN/logs/`, and quote only the relevant **excerpts** (last 50-200 lines or matched regex windows) into chat context. Reason: in-session context bloat (PITFALLS.md #19) degrades agent quality on long runs. Reference logs by relative path; never paste multi-MB blobs.
+
 ## Checkpoint Protocol
 
 After a phase returns final `passed` or `human_needed`, summarize:
