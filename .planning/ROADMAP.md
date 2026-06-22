@@ -9,7 +9,7 @@ Created: 2026-06-22
 
 ## Phases
 
-- [ ] **Phase 1: Loop Foundation — Contracts, Schemas & Safety Plumbing** — Inputs, schema extensions, preflight, redactor, additive validator hooks; no loop behavior yet
+- [x] **Phase 1: Loop Foundation — Contracts, Schemas & Safety Plumbing** — Inputs, schema extensions, preflight, redactor, additive validator hooks; no loop behavior yet
 - [ ] **Phase 2: GitHub Helpers — PR & Issue Lifecycle** — `gh_client.py`, idempotency keys, branch/label/template policy, validator-path write-protection
 - [ ] **Phase 3: Loop Controller — FSM, Budgets & Validator Discipline** — Probe→Edit→PR→Merge→Validate→Diagnose FSM with maker-checker split, three-axis budget, structured failure signature, flake handling, cross-repo SHA pinning
 - [ ] **Phase 4: Wiring — Phase Agents, Resume & E2E** — Pre/post-edit hooks in phase agents, `--resume` remote reconciliation, full `fail→fix→pass` pytest e2e
@@ -41,12 +41,14 @@ Created: 2026-06-22
 **Depends on**: Phase 1 (uses redactor + repos schema)
 **Requirements**: PR-01, PR-02, PR-03, PR-04, PR-05, PR-06, ISSUE-01, ISSUE-02, ISSUE-03, ISSUE-04, RESUME-03
 **Success Criteria** (what must be TRUE):
-  1. `gh_client.py` exposes `create_branch`, `open_pr`, `merge_pr`, `open_issue`, `close_issue`, `link_pr_issue`, and `find_by_idempotency_key`; each call records a `sha256(run_id+phase+attempt+action_kind)` footer and re-invocation with the same key returns the existing artifact rather than creating a duplicate (RESUME-03).
+  1. `gh_client.py` exposes `create_branch`, `open_pr`, `merge_pr`, `open_issue`, `close_issue`, and `find_by_idempotency_key`; each call records a `sha256(run_id+phase+attempt+action_kind)` footer and re-invocation with the same key returns the existing artifact rather than creating a duplicate (RESUME-03).
   2. PRs are created on branch `adapt/<run_id>/phase<N>/attempt<K>` (PR-04) with title/body/labels matching the templated format containing `run_id`, `phase`, `attempt`, validator name, and `<!-- adapt-skill: ... -->` footer (PR-03); every fix-PR carries `Fixes #N` linkage (ISSUE-02); direct push to default branch is refused (PR-01); merge uses `gh pr merge --squash` and base PR must merge before any validator runs (PR-02).
   3. Any PR diff touching paths under `references/phases/phaseN/verify.md`, `loongforge-phase-gate`, or validator scripts is auto-rejected and converted to a `human_needed` escalation (PR-06); force-push to a branch containing non-bot commits is refused — the helper detects human commits via `git log --format=%ae` and posts an `/agent-resume` comment instead (PR-05).
   4. Issue creation contains structured `failure_signature`, log excerpt + collapsed full log, `attempts.jsonl` link, and reproduction command (ISSUE-01); same `(phase, validator_name, failure_signature)` reuses the open issue and appends a comment instead of duplicating (ISSUE-03); every fix-PR closes its issue on merge (ISSUE-02).
   5. All bot-created PRs/issues carry labels `loongforge-adapt`, `run-<id>`, `phase-<N>`; opening, commenting on, closing, and re-finding artifacts each work end-to-end against `FakeGhClient` in pytest (ISSUE-04).
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 01-PLAN.md — Idempotency module + template module (Wave 1)
+- [ ] 02-PLAN.md — RealGhClient lifecycle + FakeGhClient state machine + test suite (Wave 2)
 
 ### Phase 3: Loop Controller — FSM, Budgets & Validator Discipline
 **Goal**: A Python loop controller drives `Probe → Edit → PR → Merge(base) → Validate → (Diagnose → Issue → Fix-PR → Review → Merge → Rerun)*` per phase with hard budgets, maker-checker separation, validator-integrity checks, and structured failure signatures — exiting only on a verifiable validator-pass or a bounded escalation. This is the FSM spine.
@@ -91,8 +93,8 @@ Created: 2026-06-22
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Loop Foundation | 3/4 | In Progress|  |
-| 2. GitHub Helpers | 0/0 | Not started | - |
+| 1. Loop Foundation | 4/4 | Complete | 2026-06-22 |
+| 2. GitHub Helpers | 0/2 | Planning | - |
 | 3. Loop Controller | 0/0 | Not started | - |
 | 4. Wiring & E2E | 0/0 | Not started | - |
 | 5. Docs & Finalization | 0/0 | Not started | - |
