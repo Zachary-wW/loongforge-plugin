@@ -77,6 +77,7 @@ class ReposBlock(BaseModel):
 class PreflightResult:
     ok: bool
     failures: list[str]            # e.g. ["gh_auth_status: not logged in (run `gh auth login`)"]
+    warnings: list[str]            # W4: branch-protection warn-only items
     branch_protection: dict        # raw gh api output for record
 
 def run_preflight(repos: "ReposBlock", *, dry_run: bool, gh: "GhClient") -> PreflightResult: ...
@@ -100,6 +101,8 @@ def run_preflight(repos: "ReposBlock", *, dry_run: bool, gh: "GhClient") -> Pref
   <name>Task 2.1: GhClient Protocol + RealGhClient (preflight subset) + FakeGhClient recorder</name>
   <read_first>
     - .planning/phases/01-loop-foundation-contracts-schemas-safety-plumbing/01-RESEARCH.md (§10 GhClient interface, full code block lines 481-599)
+    - skills/adapt/scripts/run.py (subprocess invocation pattern reference — match the existing `subprocess.run(..., capture_output=True, text=True, check=False)` style for RealGhClient._run; W1)
+    - .planning/research/PITFALLS.md (Pitfall 7 — GH rate limits / auth scope / branch protection: shapes the auth-fail handling and the "GhResult(returncode != 0, stderr non-empty)" interpretation in RealGhClient; W1)
   </read_first>
   <behavior>
     - Test (Protocol shape): `GhClient` declares all of: `auth_status`, `repo_view`, `repo_permissions`, `branch_protection`, `create_branch`, `open_pr`, `merge_pr`, `open_issue`, `close_issue`, `find_by_idempotency_key`. (Verify via `hasattr(GhClient, ...)` on the Protocol or `inspect.getmembers`.)
@@ -181,6 +184,13 @@ assert raised, 'RealGhClient.open_pr must raise NotImplementedError(Phase 2)'; p
     - Test (dry_run=False, auth_ok=False): `FakeGhClient(auth_ok=False)` → result.ok is False AND `"gh_auth_status"` substring appears in some entry of `result.failures`.
     - Test (dry_run=False, missing push): `FakeGhClient(auth_ok=True, repo_perms={"pull": True, "push": False, "admin": False})` → `result.ok is False` AND a failure mentions `"write"` or `"push"`.
     - Test (branch protection compatibility — required reviews fail): `FakeGhClient(protection={"required_pull_request_reviews": {"required_approving_review_count": 1}})` with `dry_run=False` → `result.ok is False` AND a failure mentions `"approving review"` or `"branch_protection"`.
+    - Test (W4 — restrictions hard-fail): `FakeGhClient(protection={"restrictions": {"users": [{"login": "alice"}], "teams": [], "apps": []}})` with `dry_run=False` → `result.ok is False` AND a failure mentions `"push restrictions allowlist"` AND the failure includes `"users=1"`.
+    - Test (W4 — lock_branch hard-fail): `FakeGhClient(protection={"lock_branch": True})` with `dry_run=False` → `result.ok is False` AND a failure mentions `"lock_branch=true"`.
+    - Test (W4 — required_status_checks.contexts warn-only): `FakeGhClient(protection={"required_status_checks": {"contexts": ["ci/build", "ci/test"]}})` with `dry_run=False` → `result.ok is True` (no failures) AND `result.warnings` contains an entry mentioning `"required_status_checks.contexts"` AND the contexts list.
+    - Test (W4 — enforce_admins informational): `FakeGhClient(protection={"enforce_admins": True})` → `result.ok is True` AND `result.warnings` contains an entry mentioning `"enforce_admins=true"`.
+    - Test (W4 — required_linear_history informational): `FakeGhClient(protection={"required_linear_history": True})` → `result.ok is True` AND `result.warnings` contains an entry mentioning `"required_linear_history=true"`.
+    - Test (W4 — combined hard-fail + warn): `FakeGhClient(protection={"required_pull_request_reviews": {"required_approving_review_count": 2}, "lock_branch": True, "required_status_checks": {"contexts": ["ci/build"]}})` → `result.ok is False`; `result.failures` contains BOTH the approving-review entry AND the lock_branch entry; `result.warnings` contains the contexts entry.
+    - Test (W4 — empty/None protection still compatible): `FakeGhClient(protection={})` → `result.ok is True`, `result.warnings == []` for the branch-protection portion.
     - Test (PreflightResult shape): `from dataclasses import is_dataclass; from skills.adapt.lib.preflight import PreflightResult; assert is_dataclass(PreflightResult)`.
     - Test (gh CLI absent — robustness): does NOT need to run real gh; the FakeGhClient substrate already shields tests from real gh.
   </behavior>
@@ -205,6 +215,7 @@ if TYPE_CHECKING:
 class PreflightResult:
     ok: bool
     failures: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)   # W4: branch-protection warn-only items
     branch_protection: dict = field(default_factory=dict)
 
 
@@ -222,19 +233,77 @@ def _owner_repo_from_url(url: str) -> str:
     return f"{parts[0]}/{parts[1]}"
 
 
-def _check_branch_protection_compatible(prot: dict) -> tuple[bool, str]:
-    """Return (compatible, reason). Empty dict (no protection) = compatible."""
+def _check_branch_protection_compatible(prot: dict) -> tuple[list[str], list[str]]:
+    """Return (fail_reasons, warnings).
+
+    Hard-fail (fail_reasons) — auto-merge cannot satisfy these without a
+    Phase 2 allowlist override (deferred):
+      - required_pull_request_reviews.required_approving_review_count > 0
+      - restrictions present and non-empty (push allowlist locks out the bot)
+      - lock_branch == True (no commits allowed at all)
+
+    Warn-only (Phase 1 informational; Phase 2 must satisfy):
+      - required_status_checks.contexts non-empty (Phase 2 CI must pass them)
+      - enforce_admins == True (informational; affects who can merge)
+      - required_linear_history == True (informational; affects merge strategy)
+
+    Empty dict (no protection) = compatible, no warnings."""
+    fail_reasons: list[str] = []
+    warnings: list[str] = []
     if not prot:
-        return True, ""
+        return fail_reasons, warnings
+
     required = prot.get("required_pull_request_reviews") or {}
     n = required.get("required_approving_review_count", 0)
     if n and n > 0:
-        return False, f"requires {n} approving review(s) (loop auto-merge incompatible)"
-    return True, ""
+        fail_reasons.append(
+            f"requires {n} approving review(s) (loop auto-merge incompatible)"
+        )
+
+    # restrictions: GH returns {"users": [...], "teams": [...], "apps": [...]}
+    # when set; empty/missing means no restriction. Non-empty = hard fail.
+    restrictions = prot.get("restrictions") or {}
+    if restrictions:
+        users = restrictions.get("users") or []
+        teams = restrictions.get("teams") or []
+        apps = restrictions.get("apps") or []
+        if users or teams or apps:
+            fail_reasons.append(
+                f"push restrictions allowlist non-empty "
+                f"(users={len(users)}, teams={len(teams)}, apps={len(apps)}); "
+                f"loop bot is not in allowlist (Phase 2 will add --allowlist-override)"
+            )
+
+    if prot.get("lock_branch") is True:
+        fail_reasons.append(
+            "lock_branch=true (branch is fully locked; no commits allowed)"
+        )
+
+    rsc = prot.get("required_status_checks") or {}
+    contexts = rsc.get("contexts") or []
+    if contexts:
+        warnings.append(
+            f"required_status_checks.contexts={contexts!r} "
+            f"(Phase 1 warn-only; Phase 2 CI must satisfy these)"
+        )
+
+    if prot.get("enforce_admins") is True:
+        warnings.append(
+            "enforce_admins=true (informational; admins also subject to protection)"
+        )
+
+    if prot.get("required_linear_history") is True:
+        warnings.append(
+            "required_linear_history=true (informational; Phase 2 merge strategy "
+            "must use squash/rebase, not merge-commit)"
+        )
+
+    return fail_reasons, warnings
 
 
 def run_preflight(repos: "ReposBlock", *, dry_run: bool, gh: "GhClient") -> PreflightResult:
     failures: list[str] = []
+    warnings_list: list[str] = []   # W4: branch-protection warn-only items
     branch_protection_record: dict = {}
 
     # 1. gh auth status — always run, even in dry_run
@@ -255,10 +324,14 @@ def run_preflight(repos: "ReposBlock", *, dry_run: bool, gh: "GhClient") -> Pref
                 failures.append(f"{label}_write: missing push permission on {owner_repo}")
             prot = gh.branch_protection(owner_repo, spec.base_ref)
             branch_protection_record[owner_repo] = prot
-            ok, reason = _check_branch_protection_compatible(prot)
-            if not ok:
+            fail_reasons, warns = _check_branch_protection_compatible(prot)
+            for fr in fail_reasons:
                 failures.append(
-                    f"branch_protection: {owner_repo}:{spec.base_ref} {reason}"
+                    f"branch_protection: {owner_repo}:{spec.base_ref} {fr}"
+                )
+            for w in warns:
+                warnings_list.append(
+                    f"branch_protection: {owner_repo}:{spec.base_ref} {w}"
                 )
 
     # 3. HF impl URL reachable (gh api on the github repo)
@@ -292,18 +365,29 @@ def run_preflight(repos: "ReposBlock", *, dry_run: bool, gh: "GhClient") -> Pref
     return PreflightResult(
         ok=not failures,
         failures=failures,
+        warnings=warnings_list,
         branch_protection=branch_protection_record,
     )
 
 
 def format_failures(result: PreflightResult) -> str:
-    """Render the canonical fail-fast error block."""
-    if result.ok:
-        return ""
-    lines = ["PREFLIGHT FAILED:"]
-    for f in result.failures:
-        lines.append(f"  - {f}")
-    lines.append("Aborting. Re-run with --dry-run to bypass live-write probes.")
+    """Render the canonical fail-fast error block.
+
+    W4: also renders warnings (warn-only branch-protection items) when present,
+    even when ok=True (warnings are informational, do not block)."""
+    lines: list[str] = []
+    if not result.ok:
+        lines.append("PREFLIGHT FAILED:")
+        for f in result.failures:
+            lines.append(f"  - {f}")
+    if result.warnings:
+        if lines:
+            lines.append("")
+        lines.append("PREFLIGHT WARNINGS (informational):")
+        for w in result.warnings:
+            lines.append(f"  - {w}")
+    if not result.ok:
+        lines.append("Aborting. Re-run with --dry-run to bypass live-write probes.")
     return "\n".join(lines)
 ```
 
@@ -337,6 +421,10 @@ Each sub-test asserts the exact invariant from `<behavior>`. For dry_run=True, a
     - `grep -q "def run_preflight" skills/adapt/lib/preflight.py` AND `grep -q "dry_run" skills/adapt/lib/preflight.py`.
     - `grep -q "PREFLIGHT FAILED:" skills/adapt/lib/preflight.py` (canonical error header).
     - `grep -q "gh_auth_status" skills/adapt/lib/preflight.py` AND `grep -q "branch_protection" skills/adapt/lib/preflight.py` AND `grep -q "hf_ckpt_unreachable" skills/adapt/lib/preflight.py`.
+    - W4: `grep -q "lock_branch" skills/adapt/lib/preflight.py` AND `grep -q "push restrictions allowlist" skills/adapt/lib/preflight.py` AND `grep -q "required_status_checks" skills/adapt/lib/preflight.py` AND `grep -q "enforce_admins" skills/adapt/lib/preflight.py` AND `grep -q "required_linear_history" skills/adapt/lib/preflight.py`.
+    - W4: `grep -q "PREFLIGHT WARNINGS" skills/adapt/lib/preflight.py` (warn-only renderer in format_failures).
+    - W4: `python3 -c "from dataclasses import fields; from skills.adapt.lib.preflight import PreflightResult; names = {f.name for f in fields(PreflightResult)}; assert 'warnings' in names, names"` exits 0.
+    - W4: existing `required_approving_review_count` test in `test_preflight_dry_run.py` MUST still pass after the signature change to `_check_branch_protection_compatible` returning `(fail_reasons, warnings)`.
     - `python3 -m pytest skills/adapt/tests/lib/test_preflight_dry_run.py -x -q` exits 0.
     - Negative assertion: `python3 -c "from skills.adapt.lib.gh_client import FakeGhClient; from skills.adapt.lib.preflight import run_preflight; import types; r = types.SimpleNamespace(hf_impl=types.SimpleNamespace(url='https://github.com/huggingface/transformers'), hf_ckpt=types.SimpleNamespace(url='https://huggingface.co/x/y'), loongforge=types.SimpleNamespace(url='https://github.com/a/b', base_ref='main'), megatron=types.SimpleNamespace(url='https://github.com/c/d', base_ref='main')); f = FakeGhClient(); res = run_preflight(r, dry_run=True, gh=f); assert all(c.method != 'repo_permissions' for c in f.calls), 'dry_run must not call repo_permissions'"` exits 0 (network call may still happen — that's tolerated; test only asserts no permissions probe).
   </acceptance_criteria>
@@ -361,6 +449,7 @@ Wave-level invariant: at the end of Wave 1 (plans 01 + 02 both green), `python3 
 - `FakeGhClient` records every call; configurable failure modes (`auth_ok`, `repo_perms`, `protection`) drive negative-path tests.
 - `run_preflight(repos, dry_run=True, gh=FakeGhClient())` is `ok=True` and never calls `repo_permissions` or `branch_protection`.
 - Live-mode preflight failures emit stable-prefix strings (`gh_auth_status`, `<label>_write`, `branch_protection: <repo>:<branch> requires N approving review(s) ...`).
+- W4: branch-protection compat checks cover hard-fail (`required_approving_review_count > 0`, `restrictions` non-empty, `lock_branch=true`) AND warn-only (`required_status_checks.contexts` non-empty, `enforce_admins=true`, `required_linear_history=true`); `PreflightResult.warnings` list carries warn-only entries; `format_failures` renders both blocks.
 - Test `test_preflight_dry_run.py` covers INPUT-03 fail-fast invariants and INPUT-04 dry-run skip-writes invariants.
 </success_criteria>
 

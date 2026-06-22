@@ -21,6 +21,7 @@ must_haves:
     - "Legacy invocation `loongforge-adapt <hf_path>` (no URL flags) still produces a valid run_inputs.yml WITHOUT `repos:` and WITHOUT `loop:`."
     - "Providing some-but-not-all URL flags triggers parser.error: '--hf-impl-url, --hf-ckpt-url, --loongforge-repo, --megatron-repo must all be provided together'."
     - "Preflight is invoked from init_run_dir when repos: is built; --resume path does NOT call run_preflight."
+    - "W5: a runtime test asserts the v2-init code path triggers run_preflight() (via a tracable monkeypatched stub setting a module flag) AND a subsequent --resume of the same run_dir does NOT trigger it."
     - "run_state.json legacy fields are unchanged (COMPAT-02): same key set as before."
   artifacts:
     - path: "skills/adapt/scripts/run.py"
@@ -102,7 +103,13 @@ from skills.adapt.lib.gh_client import GhClient, RealGhClient, FakeGhClient
     - Test (legacy positional only): `python -m skills.adapt.scripts.run /tmp/m --run-dir <tmp>` exits 0; `<tmp>/run_inputs.yml` is parseable YAML; the dict has keys `{source, paths, options}` and does NOT have `repos` or `loop`.
     - Test (all 4 URL flags + --dry-run): `python -m skills.adapt.scripts.run /tmp/m --run-dir <tmp> --hf-impl-url https://github.com/huggingface/transformers --hf-ckpt-url https://huggingface.co/x/y --loongforge-repo https://github.com/Zachary-wW/LoongForge --megatron-repo https://github.com/Zachary-wW/Loong-Megatron --dry-run` exits 0; `run_inputs.yml` has BOTH `repos:` (with `hf_impl.url`, `hf_ckpt.url`, `loongforge.url`, `megatron.url` set to the provided URLs) AND `loop:` (with `max_attempts_per_phase`, `max_attempts_per_run`, `max_wallclock_minutes`, `escalation` defaults).
     - Test (partial URL flags rejected): supplying ONLY `--hf-impl-url ...` (without the other 3) exits non-zero with stderr containing `"--hf-impl-url, --hf-ckpt-url, --loongforge-repo, --megatron-repo must all be provided together"`.
-    - Test (resume skips preflight): `--resume <existing_run_dir>` does NOT call `run_preflight`; subprocess call exits 0 even with no network and no `gh` CLI installed (FakeGhClient is not used here — preflight just isn't called).
+    - Test (resume skips preflight, legacy form — pre-existing): `--resume <existing_run_dir>` does NOT call `run_preflight`; subprocess call exits 0 even with no network and no `gh` CLI installed (FakeGhClient is not used here — preflight just isn't called).
+    - Test (W5 — v2 init triggers preflight, --resume does NOT, runtime-traced): an in-process pytest test that:
+        1. Monkey-patches `skills.adapt.scripts.run.run_preflight` with a stub that sets a module-level boolean flag (`_preflight_called = True`) and returns a fake `PreflightResult(ok=True, failures=[], warnings=[], branch_protection={})`.
+        2. Monkey-patches `skills.adapt.scripts.run.RealGhClient` and `skills.adapt.scripts.run.FakeGhClient` to no-op constructors so no real network/gh is touched.
+        3. Calls `main([hf_path, "--run-dir", str(tmp_path/"r"), "--hf-impl-url", "https://github.com/h/t", "--hf-ckpt-url", "https://huggingface.co/x/y", "--loongforge-repo", "https://github.com/a/b", "--megatron-repo", "https://github.com/c/d", "--dry-run"])` directly (no subprocess) — asserts `_preflight_called is True` after init.
+        4. Resets `_preflight_called = False`, then calls `main([..., "--resume", str(tmp_path/"r")])` (or whatever the existing resume CLI shape is); asserts `_preflight_called is False` after resume.
+      Equivalent factoring: if monkey-patching `run.run_preflight` directly is awkward (e.g. it's imported at function scope), factor the preflight call into a small wrapper function and patch that. The point is observable runtime tracing, not a subprocess black-box exit-code check.
     - Test (run_state.json legacy fields untouched, COMPAT-02): after the all-URL-flags invocation, `run_state.json` MUST contain exactly the legacy keys (`hf_path, model_name, run_dir, version, current_state, model_type, hf_modeling_path, omni_path, megatron_path, gpu_execution_mode, enable_slice_ckpt, k8s_yaml_path, k8s_launch_cmd, wip_code_paths, phases`) and MUST NOT have a top-level `repos` or `loop` key.
   </behavior>
   <action>
@@ -213,7 +220,53 @@ Cover all sub-tests in `<behavior>`. Use `subprocess.run([sys.executable, str(re
 
 For the partial-flags test, assert `result.returncode != 0` AND `"must all be provided together" in result.stderr`.
 
-For the resume-skip-preflight test, do an init invocation first (legacy form, no URL flags — so no preflight runs anyway), then a `--resume <run_dir>` invocation; assert exit 0. (We don't need to prove preflight was skipped for non-loop runs because preflight isn't called there to begin with; the test asserts the no-regression invariant.)
+For the legacy resume-skip-preflight test, do an init invocation first (legacy form, no URL flags — so no preflight runs anyway), then a `--resume <run_dir>` invocation; assert exit 0. (We don't need to prove preflight was skipped for non-loop runs because preflight isn't called there to begin with; the test asserts the no-regression invariant.)
+
+**W5 — runtime-traced v2 vs resume preflight test (NEW):** add an in-process pytest test (NOT subprocess) that imports `skills.adapt.scripts.run as run_mod` and monkey-patches `run_mod.run_preflight` to a tracer stub. To make this patchable, Step A's import MUST be `from skills.adapt.lib.preflight import run_preflight, format_failures` at MODULE level (not inside a function), so `run_mod.run_preflight` is the binding the code will call. The init_run_dir code site (Step F) MUST reference `run_preflight(...)` by bare name (resolved through the module's global), NOT re-import it locally — otherwise the monkey-patch won't take. Concretely:
+
+```python
+# in init_run_dir (Step F), use the MODULE-level name so monkey-patch on
+# skills.adapt.scripts.run.run_preflight intercepts the call:
+if repos is not None:
+    gh = FakeGhClient() if dry_run else RealGhClient()
+    repos_block = ReposBlock.model_validate(repos)
+    result = run_preflight(repos_block, dry_run=dry_run, gh=gh)   # <-- module-level name
+    if not result.ok:
+        import sys
+        print(format_failures(result), file=sys.stderr)
+        raise SystemExit(2)
+```
+
+The W5 test (sketch):
+
+```python
+def test_v2_init_calls_preflight_resume_does_not(tmp_path, monkeypatch):
+    import skills.adapt.scripts.run as run_mod
+    from skills.adapt.lib.preflight import PreflightResult
+
+    called = {"flag": False}
+    def _trace(*args, **kwargs):
+        called["flag"] = True
+        return PreflightResult(ok=True, failures=[], warnings=[], branch_protection={})
+    monkeypatch.setattr(run_mod, "run_preflight", _trace)
+
+    rd = tmp_path / "r"
+    run_mod.main([
+        "/tmp/m", "--run-dir", str(rd),
+        "--hf-impl-url", "https://github.com/h/t",
+        "--hf-ckpt-url", "https://huggingface.co/x/y",
+        "--loongforge-repo", "https://github.com/a/b",
+        "--megatron-repo", "https://github.com/c/d",
+        "--dry-run",
+    ])
+    assert called["flag"] is True, "v2-init path MUST invoke run_preflight"
+
+    called["flag"] = False
+    run_mod.main(["--resume", str(rd)])    # adapt to actual resume CLI shape
+    assert called["flag"] is False, "--resume path MUST NOT invoke run_preflight"
+```
+
+If the actual `main()` signature differs (e.g. needs different positional placement for `--resume`), match the existing argparse layout. The acceptance criterion is observable monkey-patch tracing, not subprocess.
   </action>
   <verify>
     <automated>cd /Users/weizhihao/workspace/agent_skills/loongforge-plugin && PYTHONPATH=. python3 -m pytest skills/adapt/tests/lib/test_run_cli.py skills/adapt/tests/test_plugin_layout.py -x -q</automated>
@@ -226,6 +279,8 @@ For the resume-skip-preflight test, do an init invocation first (legacy form, no
     - `grep -q "run_preflight" skills/adapt/scripts/run.py`.
     - `grep -q "FakeGhClient() if" skills/adapt/scripts/run.py` (dry_run-aware client selection).
     - In the `if args.resume:` branch, NO call to `run_preflight` — verify with: `python3 -c "import re; src=open('skills/adapt/scripts/run.py').read(); resume_idx = src.index('if args.resume'); end_idx = src.index('else:', resume_idx); seg = src[resume_idx:end_idx]; assert 'run_preflight' not in seg, 'preflight must not be called on --resume'"`
+    - W5 (runtime trace): the new test in `test_run_cli.py` (`test_v2_init_calls_preflight_resume_does_not` or equivalent) MUST pass — i.e. monkey-patching `skills.adapt.scripts.run.run_preflight` proves the v2-init path triggers it AND --resume does NOT.
+    - W5 (module-level binding): `python3 -c "import skills.adapt.scripts.run as m; assert hasattr(m, 'run_preflight'), 'run_preflight must be a module-level attribute for monkey-patching'"` exits 0.
     - `python3 -m pytest skills/adapt/tests/lib/test_run_cli.py -x -q` exits 0.
     - `python3 -m pytest skills/adapt/tests/test_plugin_layout.py -x -q` still exits 0 (no regression).
     - Verify legacy run_state.json shape via grep: `grep -q "\"phases\":" skills/adapt/scripts/run.py` (exists), and `grep -q "\"repos\":" skills/adapt/scripts/run.py` returns nothing (we never wrote repos into legacy state).

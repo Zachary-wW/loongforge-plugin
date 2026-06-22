@@ -32,11 +32,12 @@ must_haves:
     - "append_attempt() writes one JSON line per call, fsync'd, ending in \\n; assert_append_only enforces the invariant for tests."
     - "is_protected('skills/adapt/scripts/validate_phase_completion.py') is True; is_protected('README.md') is False; PROTECTED_PATHS is non-empty."
     - "pydantic>=2.9,<3 declared in requirements.txt and importable."
+    - "PrBlockOutput and IssuesBlockOutput skeleton models exist in lib/schema.py with extra='ignore' so Phase 2 only fills field details and Phase 3 can read pr/issues blocks before Phase 2 lands (LOG-02 forward-compat)."
   artifacts:
     - path: "skills/adapt/lib/__init__.py"
       provides: "Package marker for skills.adapt.lib"
     - path: "skills/adapt/lib/schema.py"
-      provides: "Pydantic v2 models: RunInputs, ReposBlock, RepoSpec, HFImplSpec, HFCkptSpec, LoopBudget, LoopBlockOutput"
+      provides: "Pydantic v2 models: RunInputs, ReposBlock, RepoSpec, HFImplSpec, HFCkptSpec, LoopBudget, LoopBlockOutput, PrBlockOutput, IssuesBlockOutput"
       contains: "class RunInputs"
     - path: "skills/adapt/lib/redact.py"
       provides: "redact() + RedactionResult; secret regex sweep with residual post-check"
@@ -139,6 +140,7 @@ Output: 5 new modules under `skills/adapt/lib/`, 4 unit-test files under `skills
     - Test: LoopBudget(max_attempts_per_phase=51) raises ValidationError (Field le=50 ceiling); LoopBudget(max_attempts_per_run=501) raises; LoopBudget(max_wallclock_minutes=10081) raises.
     - Test: append_attempt(tmp_path/"a.jsonl", {"k":"v"}) creates file ending with "\n"; calling 3 times yields exactly 3 newline-terminated lines; assert_append_only(path, expected_min_lines=3) returns None; assert_append_only(path, expected_min_lines=4) raises AssertionError.
     - Test: is_protected("skills/adapt/scripts/validate_phase_completion.py") is True; is_protected("bin/loongforge-phase-gate") is True; is_protected("skills/adapt/references/phases/phase1/verify.md") is True; is_protected("README.md") is False; len(PROTECTED_PATHS) >= 1.
+    - Test (LOG-02 forward-compat): `PrBlockOutput.model_validate({"number": 7, "url": "https://x", "unknown_future": "ok"})` succeeds (extra="ignore"); resulting `.number == 7`, `.url == "https://x"`, `.merged_sha is None`. Same shape test for `IssuesBlockOutput.model_validate({"opened": [1,2], "closed": [], "escalated": [], "future_key": "ok"})`.
   </behavior>
   <action>
 Create the following files VERBATIM from RESEARCH §2, §7, §9 (do not paraphrase — copy the code):
@@ -146,6 +148,32 @@ Create the following files VERBATIM from RESEARCH §2, §7, §9 (do not paraphra
 **File 1: `skills/adapt/lib/__init__.py`** — single line: `"""skills.adapt.lib — Phase 1 loop-engineering foundation modules."""`
 
 **File 2: `skills/adapt/lib/schema.py`** — copy the code block from RESEARCH §2 lines 43-141 verbatim. Models: `RepoSpec`, `HFImplSpec`, `HFCkptSpec`, `ReposBlock`, `LoopBudget`, `SourceBlock`, `PathsBlock`, `OptionsBlock`, `RunInputs` (with `loop_engineering_enabled` property and `_v2_sanity` model_validator), `LoopBlockOutput`. Use `from __future__ import annotations`. Every model MUST set `model_config = ConfigDict(extra="forbid")`. `LoopBudget` MUST use `Field(5, ge=1, le=50)`, `Field(25, ge=1, le=500)`, `Field(240, ge=10, le=10_080)`. `LoopBlockOutput.exit_reason` MUST be `Literal["validator_passed", "validator_passed_after_fix", "exhausted", "escalated", "base_only", "human_needed"]`.
+
+Additionally — for LOG-02 forward-compat (W2) — add TWO skeleton models so Phase 2 only fills field details and Phase 3 can read these blocks before Phase 2 lands:
+
+```python
+class PrBlockOutput(BaseModel):
+    """Skeleton for the optional `pr:` block in phaseN_output.yml.
+    Phase 1 ships fields-as-known; extra="ignore" lets Phase 2 add more keys without breaking Phase 1 readers."""
+    model_config = ConfigDict(extra="ignore")
+    number: Optional[int] = None         # PR number once opened
+    url: Optional[str] = None            # PR HTML URL
+    head: Optional[str] = None           # head branch (work_branch)
+    base: Optional[str] = None           # base branch (base_ref)
+    state: Optional[Literal["open", "closed", "merged"]] = None
+    merged_sha: Optional[str] = None     # commit sha after merge
+    idempotency_key: Optional[str] = None
+
+class IssuesBlockOutput(BaseModel):
+    """Skeleton for the optional `issues:` block in phaseN_output.yml.
+    Same forward-compat policy as PrBlockOutput."""
+    model_config = ConfigDict(extra="ignore")
+    opened: list[int] = Field(default_factory=list)   # issue numbers opened by the loop
+    closed: list[int] = Field(default_factory=list)   # issue numbers auto-closed on success
+    escalated: list[int] = Field(default_factory=list) # issue numbers handed to humans
+```
+
+Add `from typing import Optional` to the imports if not already present. These two classes MUST be defined AFTER `LoopBlockOutput` so the file ends with the loop-evidence model trio (loop / pr / issues). They are NOT yet wired into `RunInputs` — Phase 2 wires them. Phase 1 only ships the importable types so downstream plans can `from skills.adapt.lib.schema import PrBlockOutput, IssuesBlockOutput`.
 
 **File 3: `skills/adapt/lib/jsonl.py`** — copy the code block from RESEARCH §7 lines 339-368 verbatim. Functions: `append_attempt(path, record) -> None` (uses `os.open(..., os.O_WRONLY|os.O_CREAT|os.O_APPEND, 0o644)`, then `os.write` + `os.fsync` + `os.close`); `assert_append_only(path, expected_min_lines) -> None` (raises AssertionError on missing file, missing trailing `\n`, or fewer lines than expected). `mkdir(parents=True, exist_ok=True)` on parent.
 
@@ -178,6 +206,8 @@ Install with `python3 -m pip install -r requirements.txt` so subsequent tests/ta
 
 **File 8: `skills/adapt/tests/lib/test_schema.py`** — TEST-03 + COMPAT-02 (legacy round-trip). Build the test cases listed in `<behavior>` above. Use inline Python dicts (no fixture files needed for this size). Assert exact pydantic.ValidationError on the negative cases. Round-trip helper: `assert RunInputs.model_validate(d).model_dump(exclude_none=True, mode="json") == d` for both legacy v1 and v2 inputs (use `mode="json"` so HttpUrl serializes back to str cleanly).
 
+Also add LOG-02 forward-compat tests in the same file: a `test_pr_block_skeleton_forward_compat` that validates a `PrBlockOutput` dict carrying an unknown future key and asserts the unknown key is silently ignored AND the known fields are populated; analogous `test_issues_block_skeleton_forward_compat` for IssuesBlockOutput. These prove `extra="ignore"` on the skeletons.
+
 **File 9: `skills/adapt/tests/lib/test_jsonl_append_only.py`** — LOG-03. Three sub-tests: (a) write 3 records, assert 3 lines + trailing newline; (b) `assert_append_only` succeeds for expected count and raises AssertionError for expected_min_lines exceeding actual; (c) after `path.write_bytes(b"")` truncate, next `append_attempt` still results in single line — i.e. O_APPEND survives external truncation.
 
 **File 10: `skills/adapt/tests/lib/test_protected_paths.py`** — assertions listed in `<behavior>`.
@@ -189,6 +219,8 @@ Install with `python3 -m pip install -r requirements.txt` so subsequent tests/ta
     - `python3 -c "from skills.adapt.lib.schema import RunInputs, ReposBlock, LoopBudget, LoopBlockOutput; print('ok')"` prints `ok` (run from repo root).
     - `python3 -c "from skills.adapt.lib.schema import LoopBudget; LoopBudget(max_attempts_per_phase=51)"` exits non-zero (ValidationError).
     - `grep -q "extra=\"forbid\"" skills/adapt/lib/schema.py` AND `grep -q "loop_engineering_enabled" skills/adapt/lib/schema.py` AND `grep -q "LoopBlockOutput" skills/adapt/lib/schema.py`.
+    - LOG-02 forward-compat (W2): `grep -q "class PrBlockOutput" skills/adapt/lib/schema.py` AND `grep -q "class IssuesBlockOutput" skills/adapt/lib/schema.py` AND `grep -q "extra=\"ignore\"" skills/adapt/lib/schema.py` (skeletons use forward-compat config).
+    - LOG-02 forward-compat: `python3 -c "from skills.adapt.lib.schema import PrBlockOutput, IssuesBlockOutput; PrBlockOutput.model_validate({'number': 1, 'unknown_future_field': 'x'}); IssuesBlockOutput.model_validate({'opened': [1, 2], 'unknown_future_field': 'x'})"` exits 0 (extra fields silently ignored — forward-compat invariant).
     - `grep -q "os.O_APPEND" skills/adapt/lib/jsonl.py` AND `grep -q "os.fsync" skills/adapt/lib/jsonl.py`.
     - `grep -q "loongforge-phase-gate" skills/adapt/lib/protected_paths.py` AND `grep -q "validate_phase_completion.py" skills/adapt/lib/protected_paths.py`.
     - `grep -E "^pydantic>=2\\.9,<3" requirements.txt` matches.
@@ -301,6 +333,7 @@ All four new test files (`test_schema.py`, `test_redact.py`, `test_jsonl_append_
 - `redact()` strips all 10 hardcoded patterns + configurable internal domains; `accept=False` when any residual remains after substitution.
 - `append_attempt` is `O_APPEND`-only with `fsync`; truncation by another writer cannot cause partial-line corruption on next append.
 - `is_protected()` returns True for the canonical protected-paths set, False for unrelated files.
+- LOG-02 forward-compat: `PrBlockOutput` and `IssuesBlockOutput` skeleton models are importable from `skills.adapt.lib.schema`; both use `extra="ignore"` so Phase 2 fills field details without breaking Phase 1 readers; Phase 3 can read pr/issues data before Phase 2 lands.
 - Existing `test_plugin_layout.py` unaffected.
 </success_criteria>
 
