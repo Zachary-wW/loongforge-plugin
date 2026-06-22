@@ -31,10 +31,17 @@
 
 ### Active
 
+- ✓ RESUME-01 (--resume reconstructs FSM state from last attempts.jsonl row + loop_state.yml via LoopState.from_disk) — Validated in Phase 4: resume.py
+- ✓ RESUME-02 (reconcile_remote_state detects PR 404, closed-without-merge, SHA drift, force-push, issue 404, closed-unexpectedly; mismatches force SystemExit(3)) — Validated in Phase 4: resume.py + run.py
+- ✓ DOC-03 (all 6 agent.md carry conditional Loop Engineering Hooks with Pre-Edit branch creation + Post-Edit PR submission, gated on repos: presence) — Validated in Phase 4: references/phases/phaseN/agent.md
+- ✓ TEST-01 (E2E fail→diagnose→issue→fix-PR→review→merge→pass cycle on Phase 1 against FakeGhClient) — Validated in Phase 4: test_loop_e2e.py
+- ✓ TEST-04 (kill mid-DIAGNOSE/mid-ISSUE, resume produces zero duplicate issues/PRs) — Validated in Phase 4: test_resume.py
+- ✓ COMPAT-01 (legacy invocation without repos: produces no pr/issues/loop blocks, passes validate_phase_output) — Validated in Phase 4: test_compat.py
+
+### Active
+
 - [ ] **REQ-DOC-01**：SKILL.md / phase manuals / knowledge_base 同步更新，反映新工作流
 - [ ] **REQ-DOC-02**：在 skill 中显式引用 loop engineering 三篇文章（se.rpcx.io/04, /08, /12），把"反馈即设计""失败是信号""迭代而非线性"映射到具体步骤
-- [ ] **REQ-COMPAT-01**：保留对现有 `--resume <run_dir> --from-phase N` 的兼容
-- [ ] **REQ-TEST-01**：为新的 loop 控制器和 PR/issue helper 写 pytest，覆盖至少一次 fail→issue→fix-PR→pass 链路（可用 mock `gh`）
 
 ### Out of Scope
 
