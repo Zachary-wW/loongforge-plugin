@@ -64,7 +64,7 @@ def _validate_step_gate(data: dict[str, Any]) -> None:
 
 
 def _validate_loop_evidence(data: dict[str, Any]) -> None:
-    """Phase 1 lays this hook inert. Real checks land in Phase 3.
+    """When loop_engineering: true, validate loop block + integrity checks.
 
     When loop_engineering: true is set, this is where future checks for
     PR-merged status, validator-binary hash, log-mtime, attempts.jsonl
@@ -77,6 +77,17 @@ def _validate_loop_evidence(data: dict[str, Any]) -> None:
     if loop_block is not None:
         from skills.adapt.lib.schema import LoopBlockOutput
         LoopBlockOutput.model_validate(loop_block)  # raises ValidationError on bad shape
+
+    # VAL-04: If exit_reason is validator_passed, integrity must hold
+    if loop_block is not None and loop_block.get("exit_reason") in ("validator_passed", "validator_passed_after_fix"):
+        integrity = data.get("validator_integrity", {})
+        if not isinstance(integrity, dict) or not integrity.get("integrity_ok", False):
+            raise ValueError(
+                "validator_integrity checks failed for passed exit: "
+                f"binary_hash_ok={integrity.get('binary_hash_ok')}, "
+                f"log_mtime_ok={integrity.get('log_mtime_ok')}, "
+                f"log_present={integrity.get('log_present')}"
+            )
 
 
 def validate_phase_output(run_dir: Path, phase: int) -> None:

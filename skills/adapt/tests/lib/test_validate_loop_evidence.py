@@ -72,6 +72,12 @@ class TestLoopEngineeringFlag:
             "exit_reason": "validator_passed",
             "attempts_journal": "phases/phase1/attempts.jsonl",
         }
+        data["validator_integrity"] = {
+            "binary_hash_ok": True,
+            "log_mtime_ok": True,
+            "log_present": True,
+            "integrity_ok": True,
+        }
         _write(tmp_path, 1, data)
         assert validate_phase_output(tmp_path, 1) is None
 
