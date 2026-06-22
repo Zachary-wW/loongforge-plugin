@@ -25,7 +25,14 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import sys
 from pathlib import Path
+
+# When invoked via bin/loongforge-adapt, the project root is not on sys.path.
+# Insert it so `from skills.adapt.lib.*` resolves correctly.
+_PLUGIN_ROOT = str(Path(__file__).resolve().parents[3])  # .../loongforge-plugin
+if _PLUGIN_ROOT not in sys.path:
+    sys.path.insert(0, _PLUGIN_ROOT)
 
 import yaml
 
