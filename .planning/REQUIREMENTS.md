@@ -97,8 +97,52 @@ Date: 2026-06-22
 
 ---
 
-## Traceability (filled by roadmap)
+## Traceability
 
-| REQ-ID | Phase |
-|--------|-------|
-| (filled by gsd-roadmapper) | |
+Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans, no duplicates).
+
+| REQ-ID | Phase | Status |
+|--------|-------|--------|
+| INPUT-01 | Phase 1 | Pending |
+| INPUT-02 | Phase 1 | Pending |
+| INPUT-03 | Phase 1 | Pending |
+| LOOP-01 | Phase 3 | Pending |
+| LOOP-02 | Phase 3 | Pending |
+| LOOP-03 | Phase 3 | Pending |
+| LOOP-04 | Phase 3 | Pending |
+| LOOP-05 | Phase 3 | Pending |
+| PR-01 | Phase 2 | Pending |
+| PR-02 | Phase 2 | Pending |
+| PR-03 | Phase 2 | Pending |
+| PR-04 | Phase 2 | Pending |
+| PR-05 | Phase 2 | Pending |
+| PR-06 | Phase 2 | Pending |
+| ISSUE-01 | Phase 2 | Pending |
+| ISSUE-02 | Phase 2 | Pending |
+| ISSUE-03 | Phase 2 | Pending |
+| ISSUE-04 | Phase 2 | Pending |
+| VAL-01 | Phase 3 | Pending |
+| VAL-02 | Phase 3 | Pending |
+| VAL-03 | Phase 3 | Pending |
+| VAL-04 | Phase 3 | Pending |
+| VAL-05 | Phase 3 | Pending |
+| LOG-01 | Phase 3 | Pending |
+| LOG-02 | Phase 1 | Pending |
+| LOG-03 | Phase 1 | Pending |
+| RESUME-01 | Phase 4 | Pending |
+| RESUME-02 | Phase 4 | Pending |
+| RESUME-03 | Phase 2 | Pending |
+| SAFE-01 | Phase 1 | Pending |
+| SAFE-02 | Phase 1 | Pending |
+| SAFE-03 | Phase 1 | Pending |
+| DOC-01 | Phase 5 | Pending |
+| DOC-02 | Phase 5 | Pending |
+| DOC-03 | Phase 4 | Pending |
+| DOC-04 | Phase 5 | Pending |
+| COMPAT-01 | Phase 4 | Pending |
+| COMPAT-02 | Phase 1 | Pending |
+| COMPAT-03 | Phase 1 | Pending |
+| TEST-01 | Phase 4 | Pending |
+| TEST-02 | Phase 1 | Pending |
+| TEST-03 | Phase 1 | Pending |
+| TEST-04 | Phase 4 | Pending |
