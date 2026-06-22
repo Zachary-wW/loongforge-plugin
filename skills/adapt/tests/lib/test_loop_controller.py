@@ -383,7 +383,8 @@ def _setup_run_dir(tmp_path: Path, phase: int = 1) -> Path:
 def _write_loop_state(run_dir: Path, phase: int, current_state: str, attempt: int = 1,
                       exit_reason: str | None = None, total_attempts_used: int = 0,
                       validator_hash: str | None = None, last_validator_summary: dict | None = None,
-                      pr_number: int | None = None, issue_number: int | None = None,
+                      pr_number: int | None = None, fix_pr_number: int | None = None,
+                      issue_number: int | None = None,
                       issues_opened: list[int] | None = None, issues_closed: list[int] | None = None,
                       loong_megatron_sha: str | None = None,
                       merge_commit_sha: str | None = None,
@@ -405,6 +406,7 @@ def _write_loop_state(run_dir: Path, phase: int, current_state: str, attempt: in
         "issues_opened": issues_opened or [],
         "issues_closed": issues_closed or [],
         "pr_number": pr_number,
+        "fix_pr_number": fix_pr_number,
         "issue_number": issue_number,
         "merge_commit_sha": merge_commit_sha,
         "head_sha": head_sha,
@@ -574,7 +576,7 @@ class TestRunPhaseLoopValidateState:
         budget = LoopBudget()
         repos_info = {
             "loongforge_repo": "Zachary-wW/LoongForge",
-            "loongforge_base_ref": "main",
+            "loongforge_base_ref": "staging/test-run",
             "megatron_repo": "Zachary-wW/Loong-Megatron",
             "megatron_ref": "loong-main/core_v0.15.0",
             "run_id": "test-run",
@@ -690,7 +692,7 @@ class TestRunPhaseLoopValidateState:
         budget = LoopBudget()
         repos_info = {
             "loongforge_repo": "Zachary-wW/LoongForge",
-            "loongforge_base_ref": "main",
+            "loongforge_base_ref": "staging/test-run",
             "run_id": "test-run",
         }
         # Run from ISSUE state; the controller should open an issue and track it
@@ -782,12 +784,12 @@ class TestMergeFixState:
         from skills.adapt.lib.loop_controller import run_phase_loop, LoopState, FSMState, ExitReason
         from skills.adapt.lib.validator_wrapper import ValidatorResult
         run_dir = _setup_run_dir(tmp_path, phase=1)
-        _write_loop_state(run_dir, phase=1, current_state="merge_fix", attempt=2, pr_number=5)
+        _write_loop_state(run_dir, phase=1, current_state="merge_fix", attempt=2, fix_pr_number=5)
         gh = FakeGhClient()
         budget = LoopBudget()
         repos_info = {
             "loongforge_repo": "Zachary-wW/LoongForge",
-            "loongforge_base_ref": "main",
+            "loongforge_base_ref": "staging/test-run",
             "run_id": "test-run",
         }
         with patch("skills.adapt.lib.loop_controller.run_validator") as mock_run, \
@@ -927,7 +929,7 @@ class TestFullCycle:
         budget = LoopBudget()
         repos_info = {
             "loongforge_repo": "Zachary-wW/LoongForge",
-            "loongforge_base_ref": "main",
+            "loongforge_base_ref": "staging/test-run",
             "megatron_repo": "Zachary-wW/Loong-Megatron",
             "megatron_ref": "loong-main/core_v0.15.0",
             "run_id": "test-run",
@@ -983,7 +985,7 @@ class TestFullCycle:
         budget = LoopBudget()
         repos_info = {
             "loongforge_repo": "Zachary-wW/LoongForge",
-            "loongforge_base_ref": "main",
+            "loongforge_base_ref": "staging/test-run",
             "run_id": "test-run",
         }
         call_count = [0]
