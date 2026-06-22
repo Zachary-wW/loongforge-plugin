@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-06-22T16:23:11.461Z"
+last_updated: "2026-06-22T16:29:09.768Z"
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 10
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # STATE.md — Adapt Skill Loop-Engineering Refactor
@@ -62,6 +62,7 @@ Plan: 2 of 2
 | Phase 03 P01 | 7 | 3 tasks | 6 files |
 | Phase 03 P02 | 9 | 2 tasks | 2 files |
 | Phase 04 P01 | 9min | 2 tasks | 6 files |
+| Phase 04 P02 | 16min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,9 @@ Plan: 2 of 2
 - **Plan 03-01**: classify_failure counts consecutive same-kind+location from tail of attempts_history (reversed).
 - **Plan 04-01**: Force-push detection subsumed by SHA drift check; dedicated force_push mismatch type reserved for v1 when commit-author timestamps are available.
 - **Plan 04-01**: reconcile_remote_state only checks loongforge_repo (both PRs and issues opened there); megatron_repo not reconciled.
+- **Plan 04-02**: FIX_PR state creates fix-PR branch + open_pr with kind="fix" and fixes_issue linkage (ISSUE-02); MERGE_FIX merges fix-PR (fix_pr_number) not base PR.
+- **Plan 04-02**: fix_pr_number is a separate LoopState field from pr_number to track two distinct PRs in the cycle.
+- **Plan 04-02**: Test repos use non-default staging base_ref to satisfy PR-01 (create_branch refuses default branch base).
 - **Plan 04-01**: Reconciliation skipped when --from-phase specified (explicit reset takes precedence over stale state detection).
 
 ### Active TODOs

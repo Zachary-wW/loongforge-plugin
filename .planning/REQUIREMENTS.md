@@ -68,18 +68,18 @@ Date: 2026-06-22
 
 - [ ] **DOC-01** — `skills/adapt/SKILL.md` rewritten to describe the loop FSM, the four user inputs, the maker-checker split, termination budgets, and the "When NOT to use this loop" guard.
 - [ ] **DOC-02** — New `skills/adapt/references/loop_engineering/README.md` cites se.rpcx.io/04, /08, /12 and maps each principle to the implementation.
-- [ ] **DOC-03** — Each phase's `references/phases/phaseN/agent.md` updated with the two new bullets (pre-edit branch, post-edit PR) gated on `repos:` being present.
+- [x] **DOC-03** — Each phase's `references/phases/phaseN/agent.md` updated with the two new bullets (pre-edit branch, post-edit PR) gated on `repos:` being present.
 - [ ] **DOC-04** — End-of-run mandatory `phases/phaseN_summary.md` plus a per-run `comprehension_summary.md` (1 page) listing merged commits and one-line rationale.
 
 ### Compatibility
 
-- [ ] **COMPAT-01** — Existing `loongforge-adapt <hf_path>` invocation without URL flags continues to produce a valid run dir; loop engineering is opt-in via `repos:` presence.
+- [x] **COMPAT-01** — Existing `loongforge-adapt <hf_path>` invocation without URL flags continues to produce a valid run dir; loop engineering is opt-in via `repos:` presence.
 - [x] **COMPAT-02** — `run_state.json` legacy fields untouched; all new orchestration state lives in `run_inputs.yml` and `phaseN_output.yml`.
 - [x] **COMPAT-03** — Existing Phase 0–5 validator and step-gate logic unchanged; new `_validate_loop_evidence()` in `validate_phase_completion.py` runs only when `loop_engineering: true` flag present.
 
 ### Tests
 
-- [ ] **TEST-01** — pytest e2e covering `fail → diagnose → issue → fix-PR → review → merge → pass` on Phase 1 with mocked `gh` (FakeGhClient).
+- [x] **TEST-01** — pytest e2e covering `fail → diagnose → issue → fix-PR → review → merge → pass` on Phase 1 with mocked `gh` (FakeGhClient).
 - [x] **TEST-02** — Snapshot tests on the redaction filter against a contrived secrets corpus.
 - [x] **TEST-03** — Round-trip test for `run_inputs.yml v2` (with and without `repos:` block) exercising backward compat.
 - [x] **TEST-04** — Resume test: kill mid-Diagnose, re-invoke with `--resume`, assert no duplicate issue/PR created.
@@ -145,12 +145,12 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | SAFE-03 | Phase 1 | Complete |
 | DOC-01 | Phase 5 | Pending |
 | DOC-02 | Phase 5 | Pending |
-| DOC-03 | Phase 4 | Pending |
+| DOC-03 | Phase 4 | Complete |
 | DOC-04 | Phase 5 | Pending |
-| COMPAT-01 | Phase 4 | Pending |
+| COMPAT-01 | Phase 4 | Complete |
 | COMPAT-02 | Phase 1 | Complete |
 | COMPAT-03 | Phase 1 | Complete |
-| TEST-01 | Phase 4 | Pending |
+| TEST-01 | Phase 4 | Complete |
 | TEST-02 | Phase 1 | Complete |
 | TEST-03 | Phase 1 | Complete |
 | TEST-04 | Phase 4 | Complete |

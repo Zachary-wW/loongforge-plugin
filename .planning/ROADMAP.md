@@ -76,7 +76,7 @@ Created: 2026-06-22
   5. A run launched via the legacy `loongforge-adapt <hf_path>` invocation without URL flags continues to produce a valid run dir, no `pr`/`issues`/`loop` blocks are written, and `loongforge-phase-gate` accepts the legacy outputs unchanged (COMPAT-01 backward-compat smoke test).
 **Plans**: 2 plans
 - [x] 04-01-PLAN.md — Resume reconciliation infrastructure: view_pr/view_issue on GhClient + lib/resume.py + run.py wiring (Wave 1)
-- [ ] 04-02-PLAN.md — Phase agent hook bullets + E2E cycle test + COMPAT-01 smoke test (Wave 1)
+- [x] 04-02-PLAN.md — Phase agent hook bullets + E2E cycle test + COMPAT-01 smoke test (Wave 1)
 
 ### Phase 5: Documentation, KB & Run Finalization
 **Goal**: SKILL.md, phase manuals, and the loop-engineering reference cite the actual implementation; every run ends with a comprehension summary so users understand what merged and why; bot artifacts are housekept so the issue tracker stays readable across runs. Also produces the GPU-machine handoff so DS V4 acceptance can be driven there.
