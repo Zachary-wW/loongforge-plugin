@@ -25,6 +25,29 @@ Read the following source files at phase start:
 - `phase2_output.artifacts.output_ckpt` — the converted mcore checkpoint, loaded by the Omni script
 - Phase-local artifacts (`verify_report.json`, `mock_input/`, `run_real_weight.sh`, `loss_diff/`, `hf_tensors/`) must be written under `phase3_dir`, not under `run_dir` directly.
 
+## Loop Engineering Hooks
+
+> These steps apply ONLY when `run_inputs.yml` contains a `repos:` block (loop-engineering mode).
+> Skip entirely for legacy invocations that do not provide `repos:`.
+
+### Pre-Edit: Branch Creation
+
+Before writing any files to the target repository:
+
+1. Read `run_inputs.yml` and check if `repos:` block is present.
+2. If present, invoke `gh_helper.create_branch(owner_repo, branch="adapt/<run_id>/phase3/attempt<K>", base=<base_ref>)` on each target repo. Use `repos.loongforge.url` for `owner_repo` and `repos.loongforge.ref` for `base_ref`.
+3. Record the branch name in `phases/phase3/attempts.jsonl` as a `kind="branch"` entry.
+4. If branch creation fails (already exists or name conflict), check `gh_helper.find_by_idempotency_key` for an existing artifact and reattach rather than creating a duplicate.
+
+### Post-Edit: PR Submission
+
+After writing all phase artifacts and before running the validator:
+
+1. If `repos:` block is present, invoke `gh_helper.open_pr(owner_repo, head=<branch>, base=<base_ref>, run_id=<run_id>, phase=3, attempt=<K>, kind="base")` with templated title/body.
+2. Record the PR number and URL in `phases/phase3_output.yml` under the `pr:` block (fields: `number`, `url`).
+3. Merge the base PR via `gh_helper.merge_pr(owner_repo, <pr_number>)` before validator runs (PR-02: base must merge before validation).
+4. If the PR diff touches protected paths under `references/phases/phase3/verify.md` or `loongforge-phase-gate`, the loop controller will handle escalation to `human_needed` (PR-06).
+
 ## State Machine
 
 ### States
