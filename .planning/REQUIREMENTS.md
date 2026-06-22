@@ -61,8 +61,8 @@ Date: 2026-06-22
 ### Safety
 
 - [x] **SAFE-01** — Mandatory redaction filter on every body posted to GitHub: regex sweep for `Bearer `, `hf_`, `ghp_`, `AKIA`, `/home/<user>/`, internal domains; reject post if any pattern remains after redaction.
-- [ ] **SAFE-02** — `loop_controller.py` is a Python module — never invokes `/loop`; lint check fails build if `/loop` appears in skill code paths.
-- [ ] **SAFE-03** — Bulk log content externalized to files; only excerpts in chat context to avoid in-session bloat.
+- [x] **SAFE-02** — `loop_controller.py` is a Python module — never invokes `/loop`; lint check fails build if `/loop` appears in skill code paths.
+- [x] **SAFE-03** — Bulk log content externalized to files; only excerpts in chat context to avoid in-session bloat.
 
 ### Documentation
 
@@ -75,7 +75,7 @@ Date: 2026-06-22
 
 - [ ] **COMPAT-01** — Existing `loongforge-adapt <hf_path>` invocation without URL flags continues to produce a valid run dir; loop engineering is opt-in via `repos:` presence.
 - [x] **COMPAT-02** — `run_state.json` legacy fields untouched; all new orchestration state lives in `run_inputs.yml` and `phaseN_output.yml`.
-- [ ] **COMPAT-03** — Existing Phase 0–5 validator and step-gate logic unchanged; new `_validate_loop_evidence()` in `validate_phase_completion.py` runs only when `loop_engineering: true` flag present.
+- [x] **COMPAT-03** — Existing Phase 0–5 validator and step-gate logic unchanged; new `_validate_loop_evidence()` in `validate_phase_completion.py` runs only when `loop_engineering: true` flag present.
 
 ### Tests
 
@@ -141,15 +141,15 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | RESUME-02 | Phase 4 | Pending |
 | RESUME-03 | Phase 2 | Pending |
 | SAFE-01 | Phase 1 | Complete |
-| SAFE-02 | Phase 1 | Pending |
-| SAFE-03 | Phase 1 | Pending |
+| SAFE-02 | Phase 1 | Complete |
+| SAFE-03 | Phase 1 | Complete |
 | DOC-01 | Phase 5 | Pending |
 | DOC-02 | Phase 5 | Pending |
 | DOC-03 | Phase 4 | Pending |
 | DOC-04 | Phase 5 | Pending |
 | COMPAT-01 | Phase 4 | Pending |
 | COMPAT-02 | Phase 1 | Complete |
-| COMPAT-03 | Phase 1 | Pending |
+| COMPAT-03 | Phase 1 | Complete |
 | TEST-01 | Phase 4 | Pending |
 | TEST-02 | Phase 1 | Complete |
 | TEST-03 | Phase 1 | Complete |

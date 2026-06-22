@@ -63,6 +63,22 @@ def _validate_step_gate(data: dict[str, Any]) -> None:
         _expect(bool(step.get("evidence")), f"steps.{step_name}.evidence must be present")
 
 
+def _validate_loop_evidence(data: dict[str, Any]) -> None:
+    """Phase 1 lays this hook inert. Real checks land in Phase 3.
+
+    When loop_engineering: true is set, this is where future checks for
+    PR-merged status, validator-binary hash, log-mtime, attempts.jsonl
+    presence, etc. will live (per VAL-04, REQ-LOG-01)."""
+    if data.get("loop_engineering") is not True:
+        return  # legacy output: skip silently
+    # Phase 3 will populate the body. Phase 1 just asserts the optional
+    # `loop:` block, if present, parses cleanly through Pydantic.
+    loop_block = data.get("loop")
+    if loop_block is not None:
+        from skills.adapt.lib.schema import LoopBlockOutput
+        LoopBlockOutput.model_validate(loop_block)  # raises ValidationError on bad shape
+
+
 def validate_phase_output(run_dir: Path, phase: int) -> None:
     data = _load_phase_output(run_dir, phase)
     _expect(data.get("status") == "passed", "phase status must be passed")
@@ -112,6 +128,8 @@ def validate_phase_output(run_dir: Path, phase: int) -> None:
             production_gate.get("forbidden_shortcuts") == [],
             "conversion.production_gate.forbidden_shortcuts must be empty",
         )
+
+    _validate_loop_evidence(data)
 
 
 def main(argv: list[str] | None = None) -> int:

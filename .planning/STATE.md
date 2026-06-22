@@ -8,7 +8,7 @@ progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # STATE.md — Adapt Skill Loop-Engineering Refactor
@@ -31,14 +31,13 @@ progress:
 
 ## Current Position
 
-Phase: 01 (loop-foundation-contracts-schemas-safety-plumbing) — EXECUTING
-Plan: 4 of 4
+Phase: 01 (loop-foundation-contracts-schemas-safety-plumbing) — ALL PLANS COMPLETE
 
 - **Milestone**: Adapt Skill Loop-Engineering Refactor (v1)
 - **Phase**: Executing
-- **Plan**: 03 complete, next 04 (validator hook + lints)
-- **Status**: Wave 2 in progress (plan 03 done, plan 04 remaining)
-- **Progress**: `[████████░░] 75% plans complete`
+- **Plan**: All 4 plans complete (01-04)
+- **Status**: Phase 1 complete, ready for verification
+- **Progress**: `[==--------] 1/5 phases complete`
 
 ---
 
@@ -50,12 +49,13 @@ Plan: 4 of 4
 | Phases complete | 0 |
 | Requirements mapped | 43/43 |
 | Plans created | 4 |
-| Plans complete | 3 |
+| Plans complete | 4 |
 
 ---
 | Phase 01 P01 | 6min | 2 tasks | 13 files |
 | Phase 01 P02 | 7min | 2 tasks | 8 files |
-| Phase 01-loop-foundation-contracts-schemas-safety-plumbing P03 | 6min | 1 tasks | 2 files |
+| Phase 01 P03 | 6min | 1 tasks | 2 files |
+| Phase 01 P04 | 3min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -71,6 +71,8 @@ Plan: 4 of 4
 - **Plan 01-03**: 8 explicit per-field CLI flags instead of combined URL@ref:subpath syntax (shell quoting of @/: is fragile).
 - **Plan 01-03**: All-or-nothing URL validation post-parse (not argparse required=) to keep legacy positional hf_path working alone.
 - **Plan 01-03**: Module-level imports of run_preflight/FakeGhClient/RealGhClient for monkey-patchability (W5).
+- **Plan 01-04**: LoopBlockOutput import kept local (inside _validate_loop_evidence) so legacy code path never loads pydantic.
+- **Plan 01-04**: First /loop lint regex tightened to ^/loop\b (line-start) to avoid false-flagging SKILL.md prose.
 - PR/issue loop applies only to the two external repos (LoongForge + Loong-Megatron); plugin itself is not part of the loop.
 - Validator set frozen: union of existing per-phase validators (`phase1-verify`, `phase2-conversion`, `loss-diff`, `feature-compat`, `kb-consistency`); no unified validator.
 - Skip `/gsd:map-codebase`; researcher targets `skills/adapt/` + se.rpcx.io 04/08/12.
@@ -96,12 +98,12 @@ None.
 
 ## Session Continuity
 
-**Last session ended**: 2026-06-22, after plan 01-03 (CLI extension) execution.
+**Last session ended**: 2026-06-22, after Phase 1 complete (all 4 plans: 01-04).
 
 **Next session should**:
 
-1. Continue with plan 01-04 (validator hook + lints) in Phase 1.
-2. Run full test suite after plan 04 completes to verify Wave 2.
+1. Transition to Phase 2 planning.
+2. Run Phase-1-level invariant: `python3 -m pytest skills/adapt/tests/lib/ -x -q` (should pass after all merges).
 
 **Files of record**:
 
@@ -113,4 +115,4 @@ None.
 
 ---
 
-*Last updated: 2026-06-22 after plan 01-03 (CLI extension) execution.*
+*Last updated: 2026-06-22 after Phase 1 complete (all 4 plans).*
