@@ -1,0 +1,9 @@
+# Internal domain patterns redacted from any text bound for external GitHub posts.
+# Add literal substrings (not regexes); they are escaped at load time.
+# Phase 1 ships with a commented placeholder. Operators add real internal
+# hostnames here without touching code.
+#
+# Example:
+# - corp.internal
+# - intranet.example.com
+domains: []
