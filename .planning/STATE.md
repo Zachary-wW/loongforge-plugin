@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-06-22T08:13:38.101Z"
+last_updated: "2026-06-22T08:27:06.129Z"
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # STATE.md — Adapt Skill Loop-Engineering Refactor
@@ -32,13 +32,13 @@ progress:
 ## Current Position
 
 Phase: 01 (loop-foundation-contracts-schemas-safety-plumbing) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 
 - **Milestone**: Adapt Skill Loop-Engineering Refactor (v1)
 - **Phase**: Executing
-- **Plan**: 02 complete, next 03 (CLI) + 04 (validator hook)
-- **Status**: Wave 1 complete (plans 01 + 02), starting Wave 2
-- **Progress**: `[----------] 0/5 phases complete`
+- **Plan**: 04 complete; Phase 1 all plans done (01-04)
+- **Status**: Phase 1 complete, ready for Phase 2
+- **Progress**: `[==--------] 1/5 phases complete`
 
 ---
 
@@ -50,11 +50,12 @@ Plan: 3 of 4
 | Phases complete | 0 |
 | Requirements mapped | 43/43 |
 | Plans created | 4 |
-| Plans complete | 2 |
+| Plans complete | 4 |
 
 ---
 | Phase 01 P01 | 6min | 2 tasks | 13 files |
 | Phase 01 P02 | 7min | 2 tasks | 8 files |
+| Phase 01 P04 | 3min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,9 @@ Plan: 3 of 4
 - Validator set frozen: union of existing per-phase validators (`phase1-verify`, `phase2-conversion`, `loss-diff`, `feature-compat`, `kb-consistency`); no unified validator.
 - Skip `/gsd:map-codebase`; researcher targets `skills/adapt/` + se.rpcx.io 04/08/12.
 - Mode: yolo + coarse + inherit-model + researcher/plan-checker/verifier all on.
+
+- **Plan 01-04**: LoopBlockOutput import kept local (inside _validate_loop_evidence) so legacy code path never loads pydantic.
+- **Plan 01-04**: First /loop lint regex tightened to ^/loop\b (line-start) to avoid false-flagging SKILL.md prose.
 
 ### Active TODOs
 
@@ -92,12 +96,12 @@ None.
 
 ## Session Continuity
 
-**Last session ended**: 2026-06-22, after Wave 1 (plans 01-01 + 01-02) execution.
+**Last session ended**: 2026-06-22, after Phase 1 complete (all 4 plans: 01-04).
 
 **Next session should**:
 
-1. Continue with plan 01-03 (CLI) and plan 01-04 (validator hook + lints) in Phase 1.
-2. Run Wave-level invariant: `python3 -m pytest skills/adapt/tests/lib/ -x -q` after all Wave 1 plans complete.
+1. Transition to Phase 2 planning.
+2. Run Phase-1-level invariant: `python3 -m pytest skills/adapt/tests/lib/ -x -q` (should pass after all merges).
 
 **Files of record**:
 
@@ -109,4 +113,4 @@ None.
 
 ---
 
-*Last updated: 2026-06-22 after Wave 1 (plans 01-01 + 01-02) execution.*
+*Last updated: 2026-06-22 after Phase 1 complete (all 4 plans).*
