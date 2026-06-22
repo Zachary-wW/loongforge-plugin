@@ -17,6 +17,9 @@
 - ✓ 现有 6 阶段（Phase 0 HF 解析 / Phase 1 组网 / Phase 2 权重转换 / Phase 3 loss-diff / Phase 4 feature-compat / Phase 5 KB）— 既存能力，保留作为 loop 内部步骤
 - ✓ `loongforge-phase-gate` 作为 phase 出口确定性闸门 — 既存
 - ✓ `phases/phaseN_output.yml` + `phases/phaseN/attempts.jsonl` 作为状态真相源 — 既存
+- ✓ PR-01 (create_branch 拒绝 default branch)、PR-02 (squash merge + delete-branch)、PR-03 (PR 标题含 run_id/phase/attempt/validator)、PR-04 (branch 名正则 adapt/…/phaseN/attemptK)、PR-05 (human commit 检测 + /agent-resume)、PR-06 (protected path 拒绝) — Validated in Phase 2: gh_client.py
+- ✓ ISSUE-01 (structured failure_signature + log excerpt + attempts.jsonl + reproduction)、ISSUE-02 (Fixes #N linkage)、ISSUE-03 (dedup key 跨 attempt 去重)、ISSUE-04 (label bootstrapping) — Validated in Phase 2: gh_client.py + templates.py
+- ✓ RESUME-03 (idempotency key SHA256 + footer + find_by_idempotency_key) — Validated in Phase 2: idempotency.py + gh_client.py
 
 ### Active
 
@@ -93,4 +96,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-22 after Phase 1 completion*
+*Last updated: 2026-06-22 after Phase 2 completion (GitHub Helpers — PR & Issue Lifecycle)*
