@@ -91,6 +91,7 @@ class LoopState:
     run_start_time: str  # ISO timestamp, written once at run init
     total_attempts_used: int
     pr_number: int | None = None
+    fix_pr_number: int | None = None
     issue_number: int | None = None
     validator_hash: str | None = None
     loong_megatron_sha: str | None = None
@@ -123,6 +124,7 @@ class LoopState:
                     run_start_time=data.get("run_start_time", datetime.now(timezone.utc).isoformat()),
                     total_attempts_used=data.get("total_attempts_used", 0),
                     pr_number=data.get("pr_number"),
+                    fix_pr_number=data.get("fix_pr_number"),
                     issue_number=data.get("issue_number"),
                     validator_hash=data.get("validator_hash"),
                     loong_megatron_sha=data.get("loong_megatron_sha"),
@@ -182,6 +184,7 @@ class LoopState:
             "run_start_time": self.run_start_time,
             "total_attempts_used": self.total_attempts_used,
             "pr_number": self.pr_number,
+            "fix_pr_number": self.fix_pr_number,
             "issue_number": self.issue_number,
             "validator_hash": self.validator_hash,
             "loong_megatron_sha": self.loong_megatron_sha,
@@ -554,10 +557,27 @@ def run_phase_loop(
             state.persist(run_dir)
             return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
 
-        # --- Remaining states (Task 2 fills in) ---
+        # --- FIX_PR: create a fix branch + fix-PR ---
         case FSMState.FIX_PR:
             # Advance attempt
             state = _advance_attempt(state)
+            if repos_info:
+                owner_repo = repos_info.get("loongforge_repo", "")
+                base_ref = repos_info.get("loongforge_base_ref", "main")
+                run_id = repos_info.get("run_id", "unknown")
+                # Create a new fix branch for this attempt
+                fix_branch = f"adapt/{run_id}/phase{phase}/attempt{state.attempt}"
+                gh.create_branch(owner_repo, fix_branch, base=base_ref)
+                # Open a fix-PR linking to the issue (ISSUE-02: Fixes #N)
+                fix_pr_result = gh.open_pr(
+                    owner_repo, head=fix_branch, base=base_ref,
+                    run_id=run_id, phase=phase, attempt=state.attempt,
+                    kind="fix", fixes_issue=state.issue_number,
+                )
+                try:
+                    state.fix_pr_number = int(fix_pr_result.stdout.strip().split("/")[-1])
+                except (ValueError, IndexError):
+                    state.fix_pr_number = None
             state = _transition(state, FSMState.REVIEW, run_dir, kind="fix_pr")
             state.persist(run_dir)
             return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
@@ -569,9 +589,12 @@ def run_phase_loop(
             return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
 
         case FSMState.MERGE_FIX:
-            if repos_info and state.pr_number:
+            if repos_info:
                 owner_repo = repos_info.get("loongforge_repo", "")
-                gh.merge_pr(owner_repo, state.pr_number)
+                # Merge the fix-PR (not the base PR) before rerunning validator (PR-02)
+                fix_pr_num = getattr(state, "fix_pr_number", None)
+                if fix_pr_num:
+                    gh.merge_pr(owner_repo, fix_pr_num)
             state = _transition(state, FSMState.RERUN, run_dir, kind="merge_fix")
             state.persist(run_dir)
             return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)

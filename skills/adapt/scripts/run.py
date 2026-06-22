@@ -394,6 +394,30 @@ def main(argv=None):
         from_phase = int(args.from_phase) if args.from_phase is not None else None
         inputs = resume_run_dir(args.resume, from_phase=from_phase)
         print(f"[Resume] State loaded: {args.resume}")
+
+        # Reconciliation: verify remote PR/issue state matches local records (RESUME-02).
+        # Skip when --from-phase is specified (user explicitly resetting).
+        repos_block = inputs.get("repos")
+        if repos_block is not None and from_phase is None:
+            from skills.adapt.lib.resume import reconcile_run, ReconciliationMismatch
+            from skills.adapt.lib.gh_client import RealGhClient
+            gh = RealGhClient()
+            loongforge_repo = repos_block.get("loongforge", {}).get("url", "")
+            # Extract owner/repo from URL for reconciliation
+            if "github.com" in loongforge_repo:
+                parts = loongforge_repo.rstrip("/").split("/")
+                owner_repo = "/".join(parts[-2:]) if len(parts) >= 2 else ""
+            else:
+                owner_repo = ""
+            repos_info = {"loongforge_repo": owner_repo} if owner_repo else None
+            mismatches = reconcile_run(Path(args.resume), from_phase, gh, repos_info=repos_info)
+            if mismatches:
+                print("[Reconciliation] Remote state mismatches detected:", file=sys.stderr)
+                for m in mismatches:
+                    print(f"  - {m.artifact_type} #{m.number}: {m.issue} -- {m.detail}", file=sys.stderr)
+                print("Use --from-phase N to reset from the affected phase.", file=sys.stderr)
+                raise SystemExit(3)
+
         if from_phase is not None:
             print(f"[Reset] Starting from Phase {from_phase}; cleared stale phase results from Phase {from_phase} onward")
         print_context(args.resume, inputs)

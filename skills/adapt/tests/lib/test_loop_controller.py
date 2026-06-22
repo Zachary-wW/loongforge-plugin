@@ -386,6 +386,8 @@ def _write_loop_state(run_dir: Path, phase: int, current_state: str, attempt: in
                       pr_number: int | None = None, issue_number: int | None = None,
                       issues_opened: list[int] | None = None, issues_closed: list[int] | None = None,
                       loong_megatron_sha: str | None = None,
+                      merge_commit_sha: str | None = None,
+                      head_sha: str | None = None,
                       run_start_time: str | None = None) -> None:
     """Write a loop_state.yml for a given phase."""
     phase_dir = run_dir / "phases" / f"phase{phase}"
@@ -404,6 +406,8 @@ def _write_loop_state(run_dir: Path, phase: int, current_state: str, attempt: in
         "issues_closed": issues_closed or [],
         "pr_number": pr_number,
         "issue_number": issue_number,
+        "merge_commit_sha": merge_commit_sha,
+        "head_sha": head_sha,
     }
     (phase_dir / "loop_state.yml").write_text(yaml.dump(data, default_flow_style=False))
 
