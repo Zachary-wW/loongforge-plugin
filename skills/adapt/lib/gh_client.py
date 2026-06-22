@@ -452,9 +452,23 @@ class FakeGhClient:
     # Issue-side state
     _issue_store: dict[tuple[str, int], FakeIssueRecord] = field(default_factory=dict)
     _next_issue_number: int = 1
+    _sha_store: dict[str, str] = field(default_factory=lambda: {
+        "Zachary-wW/Loong-Megatron:loong-main/core_v0.15.0": "fake-megatron-sha-abc123",
+    })
 
     def _record(self, method: str, *args, **kwargs):
         self.calls.append(FakeGhCall(method, args, kwargs))
+
+    def _run(self, args: list[str]) -> GhResult:
+        """Simulate gh CLI _run for methods that bypass the protocol (e.g., get_megatron_head_sha)."""
+        self._record("_run", tuple(args))
+        # Handle gh api repos/OWNER/REPO/git/ref/heads/REF --jq .object.sha
+        if len(args) >= 3 and args[0] == "api":
+            key = f"{args[1].split('repos/')[-1].split('/git/')[0]}:{args[1].split('/heads/')[-1]}"
+            sha = self._sha_store.get(key)
+            if sha:
+                return GhResult(0, sha, "")
+        return GhResult(1, "", "not found")
 
     # --- Preflight (Phase 1) ---
     def auth_status(self) -> GhResult:
