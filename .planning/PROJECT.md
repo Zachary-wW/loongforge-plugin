@@ -25,15 +25,12 @@
 
 - [ ] **REQ-INPUT-01**：在 skill 启动时收集四类输入：HF 实现代码 URL、ckpt+tokenizer URL、LoongForge 仓库 URL、Loong-Megatron 仓库 URL（含分支/路径），并校验
 - [ ] **REQ-INPUT-02**：把这四个 URL 落到 `run_inputs.yml` 新增字段，下游 phase 都从这里读
-- [ ] **REQ-LOOP-01**：定义并实现显式 loop 状态机 — `Probe → Edit → PR → Merge(base) → Validate → (Diagnose → Issue → Fix-PR → Merge → Rerun)*`
-- [ ] **REQ-LOOP-02**：状态机以 phase validator 失败为唯一进入修复支路的触发条件；validator 全 pass 才允许 loop 退出
-- [ ] **REQ-LOOP-03**：循环必须有显式终止条件（最大 attempt 数、人工 escalation 出口），避免无限 loop
-- [ ] **REQ-PR-01**：所有「适配代码」改动以 PR 形式提交到 LoongForge 或 Loong-Megatron，base 版本 PR 先 merge 才能进 validate
-- [ ] **REQ-PR-02**：PR 标题/正文/标签遵循固定模板（关联 run_id、phase、attempt、validator）
-- [ ] **REQ-ISSUE-01**：validator fail 时自动在对应外部仓库创建 issue，包含 fail 现场（log 摘要、attempts.jsonl 链接、复现命令）
-- [ ] **REQ-ISSUE-02**：每个 issue 必须由一个修复 PR 关联（"Fixes #N"），review→merge→rerun 才算闭环
-- [ ] **REQ-RERUN-01**：merge 后自动 rerun 该 phase 的 validator，记录新 attempt
-- [ ] **REQ-LOG-01**：每一轮 loop 写一条 `phases/phaseN/attempts.jsonl`，含 PR URL、issue URL、validator verdict、退出原因
+- ✓ LOOP-01 (12-state FSM Probe→Edit→PR→Merge(base)→Validate→Diagnose→Issue→Fix-PR→Review→Merge→Rerun→Exit), LOOP-02 (validator_passed/validator_passed_after_fix only positive exits), LOOP-03 (3-axis budget: per-phase 5 / per-run 25 / wallclock 240 min), LOOP-04 (Diagnose read-only classifier distinct from Edit), LOOP-05 (wrong-direction → human_needed + escalation.md) — Validated in Phase 3: loop_controller.py + diagnose_classifier.py
+- ✓ VAL-01 (validator wrapper calls loongforge-phase-gate subprocess, never rewrites), VAL-02 (structured FailureSignature; free-text-only → failure_signature=None → NEEDS_HUMAN), VAL-03 (Phase 3/4 flake-rerun with DEFAULT_FLAKE_RERUN_COUNT=3), VAL-04 (3-part integrity check: binary hash + log mtime + log presence; _validate_loop_evidence rejects passed when integrity_ok=False), VAL-05 (get_megatron_head_sha via gh api; loong_megatron_sha stored in LoopState) — Validated in Phase 3: validator_wrapper.py + validate_phase_completion.py + loop_controller.py
+- ✓ LOG-01 (every FSM transition appends one row to attempts.jsonl with ts/attempt/kind/pr_url/issue_url/validator/verdict/exit_reason/event_id) — Validated in Phase 3: loop_controller.py + validator_wrapper.py
+
+### Active
+
 - [ ] **REQ-DOC-01**：SKILL.md / phase manuals / knowledge_base 同步更新，反映新工作流
 - [ ] **REQ-DOC-02**：在 skill 中显式引用 loop engineering 三篇文章（se.rpcx.io/04, /08, /12），把"反馈即设计""失败是信号""迭代而非线性"映射到具体步骤
 - [ ] **REQ-COMPAT-01**：保留对现有 `--resume <run_dir> --from-phase N` 的兼容
@@ -96,4 +93,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-22 after Phase 2 completion (GitHub Helpers — PR & Issue Lifecycle)*
+*Last updated: 2026-06-22 after Phase 3 completion (Loop Controller — FSM, Budgets & Validator Discipline)*
