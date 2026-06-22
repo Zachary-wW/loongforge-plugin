@@ -30,7 +30,11 @@ Created: 2026-06-22
   4. Redaction filter strips `Bearer `, `hf_`, `ghp_`, `AKIA`, `/home/<user>/`, and configured internal-domain patterns from any string before any GitHub post; snapshot tests (TEST-02) against a contrived secrets corpus match expected output and a residual secret causes post-rejection.
   5. `validate_phase_completion.py` continues to pass legacy `phaseN_output.yml` without the `loop_engineering` flag (COMPAT-03), and the new `_validate_loop_evidence()` extension is callable but inert when the flag is absent; `attempts.jsonl` writes are append-only with no in-place edits (LOG-03).
   6. `--dry-run` flag and `GhClient` interface are wired (INPUT-04): `loongforge-adapt --dry-run` produces a valid run dir with `repos:`/`loop:` blocks, preflight skips live-write probes but enforces URL shape + Pydantic schema, and a `FakeGhClient` stub (interface only, behavior fleshed out in Phase 2) is selected when `--dry-run` is present. This is the substrate the Phase 5 local-acceptance gate (ACC-01) runs on.
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 01-PLAN.md — Foundation libs: schema, jsonl, protected_paths, redact, pydantic dep (Wave 1)
+- [ ] 02-PLAN.md — GhClient (Protocol + RealGhClient stub + FakeGhClient) + run_preflight (Wave 1)
+- [ ] 03-PLAN.md — CLI extension: 8 URL flags + --dry-run + repos/loop blocks + preflight wire-up (Wave 2)
+- [ ] 04-PLAN.md — Validator hook (_validate_loop_evidence inert) + /loop lint + SAFE-03 doc note (Wave 2)
 
 ### Phase 2: GitHub Helpers — PR & Issue Lifecycle
 **Goal**: A maker agent can branch, open, label, and merge PRs and issues against both external repos through a single typed adapter, with idempotency keys and policy guards (validator-path write-protection, force-push refusal) that survive crashes.
@@ -87,7 +91,7 @@ Created: 2026-06-22
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Loop Foundation | 0/0 | Not started | - |
+| 1. Loop Foundation | 0/4 | Planned | - |
 | 2. GitHub Helpers | 0/0 | Not started | - |
 | 3. Loop Controller | 0/0 | Not started | - |
 | 4. Wiring & E2E | 0/0 | Not started | - |
