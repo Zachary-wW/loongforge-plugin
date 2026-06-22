@@ -11,8 +11,8 @@ Date: 2026-06-22
 
 - [ ] **INPUT-01** — Skill at startup collects four URL inputs: HF impl URL, ckpt+tokenizer URL, LoongForge repo URL, Loong-Megatron repo URL (with branch + optional subpath); each is validated for reachability and basic shape.
 - [ ] **INPUT-02** — `run_inputs.yml` extended with a top-level `repos:` block carrying all four URLs; downstream phases read from this single source.
-- [ ] **INPUT-03** — Pre-flight checks at startup: `gh auth status` OK, write permissions on both external repos, ckpt URL readable, branch protection rules dumped and asserted compatible with auto-merge — fail-fast with precise error otherwise.
-- [ ] **INPUT-04** — `loongforge-adapt --dry-run` flag wired from day one: when set, the entire FSM is driven against `FakeGhClient` with no live `gh` calls and no GPU validator invocation; preflight in dry-run mode skips remote-write checks but still validates URL shape + Pydantic schema. This is the substrate the local acceptance gate (ACC-01) runs on.
+- [x] **INPUT-03** — Pre-flight checks at startup: `gh auth status` OK, write permissions on both external repos, ckpt URL readable, branch protection rules dumped and asserted compatible with auto-merge — fail-fast with precise error otherwise.
+- [x] **INPUT-04** — `loongforge-adapt --dry-run` flag wired from day one: when set, the entire FSM is driven against `FakeGhClient` with no live `gh` calls and no GPU validator invocation; preflight in dry-run mode skips remote-write checks but still validates URL shape + Pydantic schema. This is the substrate the local acceptance gate (ACC-01) runs on.
 
 ### Loop FSM
 
@@ -112,7 +112,8 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 |--------|-------|--------|
 | INPUT-01 | Phase 1 | Pending |
 | INPUT-02 | Phase 1 | Pending |
-| INPUT-03 | Phase 1 | Pending |
+| INPUT-03 | Phase 1 | Complete |
+| INPUT-04 | Phase 1 | Complete |
 | LOOP-01 | Phase 3 | Pending |
 | LOOP-02 | Phase 3 | Pending |
 | LOOP-03 | Phase 3 | Pending |

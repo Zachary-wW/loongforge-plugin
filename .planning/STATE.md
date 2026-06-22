@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-06-22T08:12:08.392Z"
+last_updated: "2026-06-22T08:13:38.101Z"
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
+  completed_plans: 2
 ---
 
 # STATE.md — Adapt Skill Loop-Engineering Refactor
@@ -32,12 +32,12 @@ progress:
 ## Current Position
 
 Phase: 01 (loop-foundation-contracts-schemas-safety-plumbing) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 
 - **Milestone**: Adapt Skill Loop-Engineering Refactor (v1)
-- **Phase**: Not started (roadmap just created)
-- **Plan**: None
-- **Status**: Awaiting `/gsd:plan-phase 1`
+- **Phase**: Executing
+- **Plan**: 02 complete, next 03 (CLI) + 04 (validator hook)
+- **Status**: Wave 1 complete (plans 01 + 02), starting Wave 2
 - **Progress**: `[----------] 0/5 phases complete`
 
 ---
@@ -49,11 +49,12 @@ Plan: 2 of 4
 | Phases planned | 5 |
 | Phases complete | 0 |
 | Requirements mapped | 43/43 |
-| Plans created | 0 |
-| Plans complete | 0 |
+| Plans created | 4 |
+| Plans complete | 2 |
 
 ---
 | Phase 01 P01 | 6min | 2 tasks | 13 files |
+| Phase 01 P02 | 7min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -63,6 +64,9 @@ Plan: 2 of 4
 - **Plan 01-01**: Pydantic v2 models use extra='forbid' except PrBlockOutput/IssuesBlockOutput (extra='ignore') for LOG-02 forward-compat.
 - **Plan 01-01**: LoopBudget Field ceilings (le=50, le=500, le=10_080) enforce determinism at parse time, preventing loop runaway before controller runs.
 - **Plan 01-01**: Redactor uses 10 hardcoded patterns + YAML-configurable internal domains; residual post-check returns accept=False if any pattern survives.
+- **Plan 01-02**: GhClient is typing.Protocol (not ABC) for structural typing; FakeGhClient and RealGhClient are independent classes.
+- **Plan 01-02**: dry_run=True skips repo_permissions and branch_protection but keeps auth_status and repo_view; tolerates ckpt URL unreachable.
+- **Plan 01-02**: Branch protection checks split into hard-fail (approving reviews, restrictions, lock_branch) and warn-only (status_checks, enforce_admins, linear_history).
 - PR/issue loop applies only to the two external repos (LoongForge + Loong-Megatron); plugin itself is not part of the loop.
 - Validator set frozen: union of existing per-phase validators (`phase1-verify`, `phase2-conversion`, `loss-diff`, `feature-compat`, `kb-consistency`); no unified validator.
 - Skip `/gsd:map-codebase`; researcher targets `skills/adapt/` + se.rpcx.io 04/08/12.
@@ -88,13 +92,12 @@ None.
 
 ## Session Continuity
 
-**Last session ended**: 2026-06-22, after roadmap initialization.
+**Last session ended**: 2026-06-22, after Wave 1 (plans 01-01 + 01-02) execution.
 
 **Next session should**:
 
-1. Read `.planning/ROADMAP.md` and `.planning/REQUIREMENTS.md`.
-2. Run `/gsd:plan-phase 1` to begin Phase 1 (Loop Foundation).
-3. Confirm preflight scope: which `gh api` probes run at startup, exact branch-protection assertions.
+1. Continue with plan 01-03 (CLI) and plan 01-04 (validator hook + lints) in Phase 1.
+2. Run Wave-level invariant: `python3 -m pytest skills/adapt/tests/lib/ -x -q` after all Wave 1 plans complete.
 
 **Files of record**:
 
@@ -106,4 +109,4 @@ None.
 
 ---
 
-*Last updated: 2026-06-22 after plan 01-01 execution.*
+*Last updated: 2026-06-22 after Wave 1 (plans 01-01 + 01-02) execution.*
