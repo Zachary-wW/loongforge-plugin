@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-06-22T08:44:51.728Z"
+last_updated: "2026-06-22T10:47:41.207Z"
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 6
+  completed_plans: 5
 ---
 
 # STATE.md — Adapt Skill Loop-Engineering Refactor
@@ -23,7 +23,7 @@ progress:
 
 **Core Value**: The adaptation process MUST be a closed loop — every code change goes through PR → review → merge → validate → (on fail) issue → fix-PR; the loop only exits when all phase validators pass. Everything else (schemas, helpers, docs) serves this loop.
 
-**Current Focus**: Phase 1 — Loop Foundation (contracts, schemas, preflight, redactor, additive validator hooks).
+**Current Focus**: Phase 2 — GitHub Helpers (PR/issue lifecycle with idempotency and templates).
 
 **Working Branch**: `refactor/adapt-loop-engineering` (per PROJECT.md).
 
@@ -31,13 +31,14 @@ progress:
 
 ## Current Position
 
-Phase: 2
+Phase: 02 (github-helpers-pr-issue-lifecycle) — EXECUTING
+Plan: 2 of 2 (Plan 01 complete)
 
 - **Milestone**: Adapt Skill Loop-Engineering Refactor (v1)
 - **Phase**: Executing
-- **Plan**: All 4 plans complete (01-04)
-- **Status**: Phase 1 complete, ready for verification
-- **Progress**: `[==--------] 1/5 phases complete`
+- **Plan**: Plan 01 complete (idempotency + templates); Plan 02 next
+- **Status**: Phase 2 Plan 01 complete, advancing to Plan 02
+- **Progress**: `[===-------] 1/5 phases, 5/6 plans complete`
 
 ---
 
@@ -56,6 +57,7 @@ Phase: 2
 | Phase 01 P02 | 7min | 2 tasks | 8 files |
 | Phase 01 P03 | 6min | 1 tasks | 2 files |
 | Phase 01 P04 | 3min | 2 tasks | 4 files |
+| Phase 02 P01 | 6min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -73,6 +75,8 @@ Phase: 2
 - **Plan 01-03**: Module-level imports of run_preflight/FakeGhClient/RealGhClient for monkey-patchability (W5).
 - **Plan 01-04**: LoopBlockOutput import kept local (inside _validate_loop_evidence) so legacy code path never loads pydantic.
 - **Plan 01-04**: First /loop lint regex tightened to ^/loop\b (line-start) to avoid false-flagging SKILL.md prose.
+- **Plan 02-01**: Visible [adapt-skill-key: hex] fallback line before HTML comment addresses GitHub search indexing uncertainty for HTML comments.
+- **Plan 02-01**: Idempotency key and dedup key use different input tuples and serve different purposes -- must never be conflated (run_id:phase:attempt:action_kind vs phase:validator:kind:location).
 - PR/issue loop applies only to the two external repos (LoongForge + Loong-Megatron); plugin itself is not part of the loop.
 - Validator set frozen: union of existing per-phase validators (`phase1-verify`, `phase2-conversion`, `loss-diff`, `feature-compat`, `kb-consistency`); no unified validator.
 - Skip `/gsd:map-codebase`; researcher targets `skills/adapt/` + se.rpcx.io 04/08/12.
@@ -98,12 +102,12 @@ None.
 
 ## Session Continuity
 
-**Last session ended**: 2026-06-22, after Phase 1 complete (all 4 plans: 01-04).
+**Last session ended**: 2026-06-22, after Phase 2 Plan 01 complete (idempotency + templates).
 
 **Next session should**:
 
-1. Transition to Phase 2 planning.
-2. Run Phase-1-level invariant: `python3 -m pytest skills/adapt/tests/lib/ -x -q` (should pass after all merges).
+1. Execute Phase 2 Plan 02 (RealGhClient lifecycle methods + FakeGhClient state machine).
+2. Run invariant: `python3 -m pytest skills/adapt/tests/lib/ -x -q` (139 tests should pass).
 
 **Files of record**:
 
@@ -115,4 +119,4 @@ None.
 
 ---
 
-*Last updated: 2026-06-22 after Phase 1 complete (all 4 plans).*
+*Last updated: 2026-06-22 after Phase 2 Plan 01 complete.*

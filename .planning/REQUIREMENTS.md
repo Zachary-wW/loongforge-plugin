@@ -26,16 +26,16 @@ Date: 2026-06-22
 
 - [ ] **PR-01** — All adapt code changes land via `gh pr create` on either LoongForge or Loong-Megatron; direct push to default branch is forbidden.
 - [ ] **PR-02** — Base PR must be merged before any validator runs; merge uses `gh pr merge --squash` (or repo-default merge style).
-- [ ] **PR-03** — PR title/body/labels follow templated format containing `run_id`, `phase`, `attempt`, validator name, and a hidden `<!-- adapt-skill: ... -->` idempotency footer.
+- [x] **PR-03** — PR title/body/labels follow templated format containing `run_id`, `phase`, `attempt`, validator name, and a hidden `<!-- adapt-skill: ... -->` idempotency footer.
 - [ ] **PR-04** — Branch naming: `adapt/<run_id>/phase<N>/attempt<K>` on both external repos.
 - [ ] **PR-05** — Force-push to a branch that contains non-bot commits is forbidden; on detected human commit, loop pauses and posts a comment requesting `/agent-resume`.
 - [ ] **PR-06** — Validator-path edits (paths under `references/phases/phaseN/verify.md`, `loongforge-phase-gate`, validator scripts) are auto-rejected and converted to `human_needed` escalation.
 
 ### Issue Lifecycle
 
-- [ ] **ISSUE-01** — On validator failure (after rerun-for-flake threshold), open a `gh issue` containing structured `failure_signature`, log excerpt (last N lines + collapsed full log), `attempts.jsonl` link, and reproduction command.
-- [ ] **ISSUE-02** — Every issue is closed by a fix-PR carrying `Fixes #N`; merge of fix-PR auto-closes issue.
-- [ ] **ISSUE-03** — Issue dedup: same `(phase, validator_name, failure_signature)` reuses the open issue and appends a comment instead of opening a duplicate (basic version; advanced fingerprinting deferred).
+- [x] **ISSUE-01** — On validator failure (after rerun-for-flake threshold), open a `gh issue` containing structured `failure_signature`, log excerpt (last N lines + collapsed full log), `attempts.jsonl` link, and reproduction command.
+- [x] **ISSUE-02** — Every issue is closed by a fix-PR carrying `Fixes #N`; merge of fix-PR auto-closes issue.
+- [x] **ISSUE-03** — Issue dedup: same `(phase, validator_name, failure_signature)` reuses the open issue and appends a comment instead of opening a duplicate (basic version; advanced fingerprinting deferred).
 - [ ] **ISSUE-04** — All bot-created PRs/issues carry labels `loongforge-adapt`, `run-<id>`, `phase-<N>`; on run completion, auxiliary issues closed with summary linking digest.
 
 ### Validator Invocation
@@ -56,7 +56,7 @@ Date: 2026-06-22
 
 - [ ] **RESUME-01** — `--resume <run_dir> [--from-phase N]` continues to work; controller reconstructs FSM state from last `attempts.jsonl` row plus `phaseN_output.yml`.
 - [ ] **RESUME-02** — On resume, controller reconciles every PR/issue id against `gh`; mismatches force `--reset-phase N` rather than silent proceed.
-- [ ] **RESUME-03** — Idempotency keys (`sha256(run_id + phase + attempt + action_kind)`) prevent duplicate PR/issue creation across crash-resume.
+- [x] **RESUME-03** — Idempotency keys (`sha256(run_id + phase + attempt + action_kind)`) prevent duplicate PR/issue creation across crash-resume.
 
 ### Safety
 
@@ -121,13 +121,13 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | LOOP-05 | Phase 3 | Pending |
 | PR-01 | Phase 2 | Pending |
 | PR-02 | Phase 2 | Pending |
-| PR-03 | Phase 2 | Pending |
+| PR-03 | Phase 2 | Complete |
 | PR-04 | Phase 2 | Pending |
 | PR-05 | Phase 2 | Pending |
 | PR-06 | Phase 2 | Pending |
-| ISSUE-01 | Phase 2 | Pending |
-| ISSUE-02 | Phase 2 | Pending |
-| ISSUE-03 | Phase 2 | Pending |
+| ISSUE-01 | Phase 2 | Complete |
+| ISSUE-02 | Phase 2 | Complete |
+| ISSUE-03 | Phase 2 | Complete |
 | ISSUE-04 | Phase 2 | Pending |
 | VAL-01 | Phase 3 | Pending |
 | VAL-02 | Phase 3 | Pending |
@@ -139,7 +139,7 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | LOG-03 | Phase 1 | Complete |
 | RESUME-01 | Phase 4 | Pending |
 | RESUME-02 | Phase 4 | Pending |
-| RESUME-03 | Phase 2 | Pending |
+| RESUME-03 | Phase 2 | Complete |
 | SAFE-01 | Phase 1 | Complete |
 | SAFE-02 | Phase 1 | Complete |
 | SAFE-03 | Phase 1 | Complete |
