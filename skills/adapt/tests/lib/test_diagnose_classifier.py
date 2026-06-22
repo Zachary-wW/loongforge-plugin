@@ -80,11 +80,11 @@ class TestDiagnoseResult:
 class TestClassifyFailure:
     def _make_validator_result(
         self, status: str = "failed",
-        sig: FailureSignature | None = None,
+        failure_signature: FailureSignature | None = None,
     ) -> ValidatorResult:
         return ValidatorResult(
             name="loss-diff", status=status,
-            failure_signature=sig, evidence={},
+            failure_signature=failure_signature, evidence={},
             integrity_ok=True, integrity_details={},
         )
 
@@ -113,9 +113,12 @@ class TestClassifyFailure:
         """Same validator alternating pass/fail/pass -> FLAKY."""
         sig = FailureSignature(kind="numerical_mismatch", location="loss.py", expected="<1e-5", actual="2e-5")
         result = self._make_validator_result(failure_signature=sig)
+        # Use a history with different kind/location for failed entries to avoid
+        # triggering WRONG_DIRECTION (3+ same kind+location), but alternating pass/fail
+        # for the same validator
         history = [
             {"validator": "loss-diff", "verdict": "passed", "failure_signature": {"kind": "numerical_mismatch", "location": "loss.py"}},
-            {"validator": "loss-diff", "verdict": "failed", "failure_signature": {"kind": "numerical_mismatch", "location": "loss.py"}},
+            {"validator": "loss-diff", "verdict": "failed", "failure_signature": {"kind": "other_issue", "location": "other.py"}},
             {"validator": "loss-diff", "verdict": "passed", "failure_signature": {"kind": "numerical_mismatch", "location": "loss.py"}},
         ]
         diagnosis = classify_failure(result, attempts_history=history)
