@@ -29,6 +29,12 @@ from pathlib import Path
 
 import yaml
 
+from skills.adapt.lib.schema import (
+    RunInputs, ReposBlock, RepoSpec, HFImplSpec, HFCkptSpec, LoopBudget,
+)
+from skills.adapt.lib.preflight import run_preflight, format_failures
+from skills.adapt.lib.gh_client import RealGhClient, FakeGhClient
+
 
 # -- run_inputs.yml schema ---------------------------------------------------
 
@@ -44,9 +50,11 @@ def _build_run_inputs(
     k8s_yaml_path: str = "",
     k8s_launch_cmd: str = "",
     wip_code_paths: str = "",
+    repos: dict | None = None,
+    loop: dict | None = None,
 ) -> dict:
     """Build the run_inputs.yml dict from collected parameters."""
-    return {
+    result = {
         "source": {
             "hf_ckpt_path": hf_ckpt_path,
         },
@@ -65,6 +73,11 @@ def _build_run_inputs(
             "wip_code_paths": wip_code_paths,
         },
     }
+    if repos is not None:
+        result["repos"] = repos
+    if loop is not None:
+        result["loop"] = loop
+    return result
 
 
 def save_run_inputs(run_dir: str, inputs: dict) -> None:
@@ -187,6 +200,9 @@ def init_run_dir(
     hf_ckpt_path: str,
     model_name: str,
     run_dir: str,
+    repos: dict | None = None,
+    loop: dict | None = None,
+    dry_run: bool = False,
     **cli_kwargs,
 ) -> dict:
     """Create run_dir, write run_inputs.yml and legacy run_state.json, return inputs dict."""
@@ -211,8 +227,20 @@ def init_run_dir(
         k8s_yaml_path=cli_kwargs.get("k8s_yaml_path", ""),
         k8s_launch_cmd=cli_kwargs.get("k8s_launch_cmd", ""),
         wip_code_paths=cli_kwargs.get("wip_code_paths", ""),
+        repos=repos,
+        loop=loop,
     )
     save_run_inputs(run_dir, inputs)
+    # Preflight: only when repos is present (loop-engineering mode).
+    # Must run after save_run_inputs so the run_dir exists for diagnostics.
+    if repos is not None:
+        gh = FakeGhClient() if dry_run else RealGhClient()
+        repos_block = ReposBlock.model_validate(repos)
+        result = run_preflight(repos_block, dry_run=dry_run, gh=gh)
+        if not result.ok:
+            import sys
+            print(format_failures(result), file=sys.stderr)
+            raise SystemExit(2)
     save_legacy_state(run_dir, inputs, current_state="INIT")
     return inputs
 
@@ -314,6 +342,27 @@ def main(argv=None):
         default=None,
         help="WIP reference implementation paths, format: path1|type1,path2|type2 (type: megatron|hf_transformers|omni|other)",
     )
+
+    repos_group = parser.add_argument_group("repos (loop engineering)")
+    repos_group.add_argument("--hf-impl-url", default=None,
+        help="HF model impl repo URL (e.g. https://github.com/huggingface/transformers)")
+    repos_group.add_argument("--hf-impl-ref", default="main", help="HF impl branch/tag/sha")
+    repos_group.add_argument("--hf-impl-subpath", default=None,
+        help="Path within HF impl repo (e.g. src/transformers/models/deepseek_v4)")
+    repos_group.add_argument("--hf-ckpt-url", default=None,
+        help="HF Hub ckpt URL (e.g. https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-Base)")
+    repos_group.add_argument("--hf-ckpt-revision", default="main")
+    repos_group.add_argument("--loongforge-repo", default=None,
+        help="LoongForge repo URL")
+    repos_group.add_argument("--loongforge-base-ref", default="main")
+    repos_group.add_argument("--megatron-repo", default=None,
+        help="Loong-Megatron repo URL")
+    repos_group.add_argument("--megatron-base-ref", default="loong-main/core_v0.15.0")
+
+    dryrun_group = parser.add_argument_group("dry run")
+    dryrun_group.add_argument("--dry-run", action="store_true",
+        help="Use FakeGhClient; skip live gh writes; still validate URL shape and schema")
+
     parser.add_argument(
         "--from-phase",
         type=str,
@@ -324,7 +373,17 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
+    # All-or-nothing URL validation: if any URL flag is provided, all four must be.
+    url_flags = [args.hf_impl_url, args.hf_ckpt_url, args.loongforge_repo, args.megatron_repo]
+    loop_engineering = any(url_flag is not None for url_flag in url_flags)
+    if loop_engineering and not all(url_flag is not None for url_flag in url_flags):
+        parser.error(
+            "--hf-impl-url, --hf-ckpt-url, --loongforge-repo, --megatron-repo "
+            "must all be provided together"
+        )
+
     if args.resume:
+        # Preflight is intentionally skipped on --resume; the original init already passed it.
         from_phase = int(args.from_phase) if args.from_phase is not None else None
         inputs = resume_run_dir(args.resume, from_phase=from_phase)
         print(f"[Resume] State loaded: {args.resume}")
@@ -354,6 +413,20 @@ def main(argv=None):
                 entries.append({"path": parts[0], "type": parts[1]})
             wip_code_paths = json.dumps(entries)
 
+        # Build repos/loop dicts when loop_engineering is enabled
+        repos_dict = None
+        loop_dict = None
+        if loop_engineering:
+            # Validate URL shape via Pydantic (raises ValidationError on bad URL).
+            repos_block = ReposBlock(
+                hf_impl=HFImplSpec(url=args.hf_impl_url, ref=args.hf_impl_ref, subpath=args.hf_impl_subpath),
+                hf_ckpt=HFCkptSpec(url=args.hf_ckpt_url, revision=args.hf_ckpt_revision),
+                loongforge=RepoSpec(url=args.loongforge_repo, base_ref=args.loongforge_base_ref),
+                megatron=RepoSpec(url=args.megatron_repo, base_ref=args.megatron_base_ref),
+            )
+            repos_dict = repos_block.model_dump(exclude_none=True, mode="json")
+            loop_dict = LoopBudget().model_dump(mode="json")  # defaults: 5/25/240/human_needed
+
         inputs = init_run_dir(
             hf_ckpt_path=args.hf_path,
             model_name=model_name,
@@ -367,6 +440,9 @@ def main(argv=None):
             k8s_yaml_path=args.k8s_yaml_path or "",
             k8s_launch_cmd=args.k8s_launch_cmd or "",
             wip_code_paths=wip_code_paths,
+            repos=repos_dict,
+            loop=loop_dict,
+            dry_run=args.dry_run,
         )
         print(f"[Initialized] run_dir created: {run_dir}")
         print_context(run_dir, inputs)
