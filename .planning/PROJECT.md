@@ -38,10 +38,12 @@
 - ✓ TEST-04 (kill mid-DIAGNOSE/mid-ISSUE, resume produces zero duplicate issues/PRs) — Validated in Phase 4: test_resume.py
 - ✓ COMPAT-01 (legacy invocation without repos: produces no pr/issues/loop blocks, passes validate_phase_output) — Validated in Phase 4: test_compat.py
 
-### Active
-
-- [ ] **REQ-DOC-01**：SKILL.md / phase manuals / knowledge_base 同步更新，反映新工作流
-- [ ] **REQ-DOC-02**：在 skill 中显式引用 loop engineering 三篇文章（se.rpcx.io/04, /08, /12），把"反馈即设计""失败是信号""迭代而非线性"映射到具体步骤
+- ✓ DOC-01 (SKILL.md rewritten with loop-first architecture: 12-state FSM, three-layer framing, maker-checker split, three-axis budget, When NOT to Use, Loop Invocation, End-of-Run Housekeeping wiring) — Validated in Phase 5: skills/adapt/SKILL.md
+- ✓ DOC-02 (loop_engineering/README.md maps P1-P21 to concrete implementation files/functions, cites se.rpcx.io/04/08/12) — Validated in Phase 5: skills/adapt/references/loop_engineering/README.md
+- ✓ DOC-04 (summary_generator.py produces comprehension_summary.md + phaseN_summary.md with merge_commit_sha column; CLI entry point) — Validated in Phase 5: skills/adapt/lib/summary_generator.py
+- ✓ ACC-01 (386 pytest tests green, test_loop_e2e.py proves full FSM cycle against FakeGhClient) — Validated in Phase 5
+- ✓ ACC-02 (ds_v4_runbook.md with DS V4 invocation, pass criteria, community diff placeholder) — Validated in Phase 5: skills/adapt/references/acceptance/ds_v4_runbook.md
+- ✓ ACC-03 (HANDOFF.md with copy list, env setup, resume instructions, ckpt expectations) — Validated in Phase 5: .planning/HANDOFF.md
 
 ### Out of Scope
 
@@ -100,4 +102,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-22 after Phase 3 completion (Loop Controller — FSM, Budgets & Validator Discipline)*
+*Last updated: 2026-06-23 after Phase 5 completion (Documentation, KB & Run Finalization) — all 5 phases complete*
