@@ -37,12 +37,21 @@ class TestBranchCreation:
         with pytest.raises(ValueError, match="Invalid branch name"):
             fake.create_branch("Zachary-wW/LoongForge", "feature/foo", "main")
 
-    def test_create_branch_direct_push(self):
-        """Targeting the default branch raises DirectPushError."""
+    def test_create_branch_fork_from_default_is_allowed(self):
+        """Basing a feature branch off the default branch is normal and allowed (PR-01 fix)."""
         fake = FakeGhClient()
-        # Zachary-wW/LoongForge default is "main"
+        # Zachary-wW/LoongForge default is "main" — basing off it is fine
+        result = fake.create_branch("Zachary-wW/LoongForge", "adapt/run1/phase1/attempt0", "main")
+        assert result.returncode == 0
+
+    def test_create_branch_branch_name_equals_default_raises(self):
+        """Naming the new branch the same as the default branch raises DirectPushError."""
+        fake = FakeGhClient()
+        # The _BRANCH_RE won't match "main" anyway, but the DirectPushError
+        # guard catches branch == default_branch (direct push to protected).
+        fake._default_branches["Zachary-wW/LoongForge"] = "adapt/run1/phase1/attempt0"
         with pytest.raises(DirectPushError):
-            fake.create_branch("Zachary-wW/LoongForge", "adapt/run1/phase1/attempt0", "main")
+            fake.create_branch("Zachary-wW/LoongForge", "adapt/run1/phase1/attempt0", "develop")
 
     def test_create_branch_recorded(self):
         """Call is recorded in FakeGhClient.calls."""

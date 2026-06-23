@@ -110,6 +110,13 @@ def main(argv: list[str] | None = None) -> int:
     # GhClient
     gh = FakeGhClient() if args.dry_run else RealGhClient()
 
+    # Ensure plugin bin/ is on PATH so loongforge-phase-gate is findable
+    bin_dir = str(Path(_PLUGIN_ROOT) / "bin")
+    import os
+    existing_path = os.environ.get("PATH", "")
+    if bin_dir not in existing_path.split(os.pathsep):
+        os.environ["PATH"] = bin_dir + os.pathsep + existing_path
+
     # pause_before_fix: True on first run (so agent can inject fix code),
     # False on --continue-fix (agent already wrote fix code, let FSM run).
     pause_before_fix = not args.continue_fix

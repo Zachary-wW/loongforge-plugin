@@ -187,13 +187,20 @@ class RealGhClient:
     # --- PR lifecycle (Phase 2) ---
 
     def create_branch(self, owner_repo: str, branch: str, base: str) -> GhResult:
-        """Create a branch via gh api. Validates name format and refuses default-branch base."""
+        """Create a branch via gh api. Validates name format and refuses default-branch base.
+
+        PR-01 guard: refuses when the NEW branch name equals the default branch
+        (which would be a direct push to the protected branch).  Basing a feature
+        branch OFF the default branch is perfectly normal and allowed.
+        """
         if not _BRANCH_RE.match(branch):
             raise ValueError(f"Invalid branch name: {branch}; expected adapt/<run_id>/phase<N>/attempt<K>")
         # Detect default branch to refuse direct push (PR-01)
+        # Guard: refuse when branch == default_branch (direct push to protected)
+        # but allow base == default_branch (normal: fork feature branch from default)
         default_r = self._run(["api", f"repos/{owner_repo}", "--jq", ".default_branch"])
-        if default_r.returncode == 0 and default_r.stdout.strip() == base:
-            raise DirectPushError(base)
+        if default_r.returncode == 0 and default_r.stdout.strip() == branch:
+            raise DirectPushError(branch)
         # Get base SHA
         base_sha_r = self._run(["api", f"repos/{owner_repo}/git/ref/heads/{base}", "--jq", ".object.sha"])
         if base_sha_r.returncode != 0:
@@ -520,13 +527,17 @@ class FakeGhClient:
     # --- PR lifecycle (Phase 2) ---
 
     def create_branch(self, owner_repo: str, branch: str, base: str) -> GhResult:
-        """Create a simulated branch. Validates name format and refuses default-branch base."""
+        """Create a simulated branch. Validates name format and refuses default-branch base.
+
+        PR-01 guard: refuses when the NEW branch name equals the default branch
+        (direct push).  Basing off the default branch is normal and allowed.
+        """
         self._record("create_branch", owner_repo, branch, base)
         if not _BRANCH_RE.match(branch):
             raise ValueError(f"Invalid branch name: {branch}; expected adapt/<run_id>/phase<N>/attempt<K>")
         default_branch = self._default_branches.get(owner_repo, "main")
-        if base == default_branch:
-            raise DirectPushError(base)
+        if branch == default_branch:
+            raise DirectPushError(branch)
         return GhResult(0, "", "")
 
     def open_pr(self, owner_repo: str, head: str, base: str,

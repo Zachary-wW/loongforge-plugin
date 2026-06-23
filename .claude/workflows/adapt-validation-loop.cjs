@@ -89,21 +89,6 @@ const CLEAR_SCHEMA = {
   required: ['cleared_files', 'success'],
 }
 
-// ── Fix cycle helper prompt fragment ────────────────────────────────────────
-
-const FIX_CYCLE_INSTRUCTIONS = `
-If loongforge-phase-loop exits with code 10 (FIX_NEEDED):
-  1. Read the diagnosis from the loop state: <run_dir>/phases/phase<N>/loop_state.yml
-     Look at last_validator_summary for the validator name, status, and failure_signature.
-  2. Read the repair template at: ${PLUGIN_ROOT}/skills/adapt/loop_templates/phase<N>/repair.md
-     If the template does not exist, read the diagnose classifier output from attempts.jsonl.
-  3. Write the fix code on the branch that the loop controller created.
-     The branch name is in loop_state.yml under the attempt counter.
-     Push your fix to that branch.
-  4. Re-run the loop: loongforge-phase-loop --run-dir <run_dir> --phase <N> --continue-fix
-  5. Repeat steps 1-4 until the loop exits 0 (passed) or 1 (exhausted/human_needed).
-  6. If the loop exits 1, read escalation.md if it exists and report the failure.`
-
 // ── Main loop ───────────────────────────────────────────────────────────────
 
 let iteration = 0
@@ -177,19 +162,33 @@ Report success or failure.`,
 3. Read run_inputs.yml at ${runDir}/run_inputs.yml to check if repos: block is present.
 
 4. If repos: block IS present (loop-engineering mode), follow the "Loop Engineering Hooks"
-   section in the Phase 0 manual. Use the loongforge-phase-loop CLI for the FSM closed loop:
-     ${PLUGIN_ROOT}/bin/loongforge-phase-loop --run-dir ${runDir} --phase 0 [--dry-run]
+   section in the manual EXACTLY. This means YOU (the agent) must:
+   a) Pre-Edit: Create branch via gh CLI:
+      gh api repos/<owner>/<repo>/git/refs -f ref=refs/heads/adapt/<run_id>/phase0/attempt1 -f sha=<base_sha>
+   b) Write your Phase 0 code/artifacts (model_spec.yaml, etc.)
+   c) Post-Edit: Open PR, merge it:
+      gh pr create --repo <owner>/<repo> --head adapt/<run_id>/phase0/attempt1 --base <base_ref> ...
+      gh pr merge <pr_number> --squash --delete-branch
+   The agent.md manual describes this as gh_helper calls — translate those
+   to direct gh CLI commands.
 
-5. ${FIX_CYCLE_INSTRUCTIONS.replace(/<run_dir>/g, runDir).replace(/<N>/g, '0')}
+5. After writing artifacts and (if loop-engineering) merging your PR, run
+   the validator loop to verify:
+     ${PLUGIN_ROOT}/bin/loongforge-phase-loop --run-dir ${runDir} --phase 0
 
-6. After the phase loop completes (exit 0), validate with the structural gate:
-     ${PLUGIN_ROOT}/bin/loongforge-phase-gate --run-dir ${runDir} --phase 0
+   This runs loongforge-phase-gate (structural checks, no GPU needed).
+   If exit code 0: Phase 0 passed.
+   If exit code 10 (FIX_NEEDED): the FSM has diagnosed a failure and opened
+   an issue. Read the diagnosis from ${runDir}/phases/phase0/loop_state.yml,
+   apply the fix, then re-run with --continue-fix:
+     ${PLUGIN_ROOT}/bin/loongforge-phase-loop --run-dir ${runDir} --phase 0 --continue-fix
+   Repeat until exit 0 or 1.
+   If exit code 1 (exhausted/human_needed): read escalation.md if it exists.
 
-7. Write ${runDir}/phases/phase0_output.yml following the real schema at:
+6. Write ${runDir}/phases/phase0_output.yml following the real schema at:
    ${PLUGIN_ROOT}/skills/adapt/references/phases/phase0/phase0_output_schema.yaml
 
-The adapt skill's real infrastructure handles gh interaction (PR/issue/merge).
-Trust the agent.md manual and the CLI tools — do NOT reimplement their logic.`,
+Trust the agent.md manual — do NOT skip any of its steps.`,
     { label: 'phase0-execute', phase: 'Phase 0' }
   )
 
@@ -206,16 +205,21 @@ Trust the agent.md manual and the CLI tools — do NOT reimplement their logic.`
 
 3. Read Phase 0 output at ${runDir}/phases/phase0_output.yml — confirm status=passed before proceeding.
 
-4. Read run_inputs.yml — if repos: block present, follow the "Loop Engineering Hooks"
-   section. Use the loongforge-phase-loop CLI for the FSM closed loop (PR/merge):
-     ${PLUGIN_ROOT}/bin/loongforge-phase-loop --run-dir ${runDir} --phase 1 [--dry-run]
+4. If repos: block IS present (loop-engineering mode), follow the "Loop Engineering Hooks"
+   section in the manual EXACTLY. YOU (the agent) must:
+   a) Pre-Edit: Create branch via gh CLI on the target repo
+   b) Write your Phase 1 code (config, attention, model, layer_spec, rope, __init__, yaml files)
+   c) Post-Edit: Open PR, merge it via gh CLI
+   Translate gh_helper calls from the manual to direct gh CLI commands.
 
-5. ${FIX_CYCLE_INSTRUCTIONS.replace(/<run_dir>/g, runDir).replace(/<N>/g, '1')}
+5. After writing code and merging your PR, run the validator loop:
+     ${PLUGIN_ROOT}/bin/loongforge-phase-loop --run-dir ${runDir} --phase 1
+   If exit code 10 (FIX_NEEDED): read diagnosis from loop_state.yml, write
+   fix code, then re-run with --continue-fix. Repeat until exit 0 or 1.
 
 6. VALIDATION GATE: Since the real Phase 1 validator (loss alignment) requires GPU
    and we are running on a local Mac, use Compare against ground truth instead:
-   After the loop merges your code (or after you write the code in local mode),
-   compare the generated files against ground truth:
+   After the loop completes, compare the generated files against ground truth:
 
    GENERATED files (read from the LoongForge repo at the merge commit, or from local paths):
    - ${runDir}/phases/phase1/ (local artifacts if any)
@@ -255,10 +259,13 @@ Trust the agent.md manual and the CLI tools — do NOT reimplement their logic.`
 3. Read Phase 0 output at ${runDir}/phases/phase0_output.yml — confirm status=passed.
    Read Phase 1 output at ${runDir}/phases/phase1_output.yml — confirm status=passed.
 
-4. If repos: block present, follow the "Loop Engineering Hooks" section.
-   Use: ${PLUGIN_ROOT}/bin/loongforge-phase-loop --run-dir ${runDir} --phase 2 [--dry-run]
+4. If repos: block present, follow the "Loop Engineering Hooks" section in the manual.
+   YOU (the agent) must create branch, write code, open PR, merge it via gh CLI.
 
-5. ${FIX_CYCLE_INSTRUCTIONS.replace(/<run_dir>/g, runDir).replace(/<N>/g, '2')}
+5. After writing code and merging your PR, run the validator loop:
+     ${PLUGIN_ROOT}/bin/loongforge-phase-loop --run-dir ${runDir} --phase 2
+   If exit code 10 (FIX_NEEDED): read diagnosis from loop_state.yml, write
+   fix code, then re-run with --continue-fix. Repeat until exit 0 or 1.
 
 6. VALIDATION GATE: Same as Phase 1 — GPU validator not available on Mac.
    Compare the generated conversion code against ground truth:
