@@ -89,7 +89,9 @@ Created: 2026-06-22
   4. On run completion, all auxiliary bot-created issues are closed with a summary comment linking the run digest, and bot PRs/issues consistently carry `loongforge-adapt`, `run-<id>`, `phase-<N>` labels — verified by an end-of-run housekeeping pass that exits non-zero on any unlabeled or stranded artifact.
   5. **Local-acceptance gate (ACC-01)**: `pytest skills/adapt/tests/` green AND a `loongforge-adapt --dry-run --hf-impl-url ... --hf-ckpt-url ... --loongforge-repo ... --megatron-repo ...` invocation drives the FSM end-to-end against `FakeGhClient` with **no live `gh` calls and no GPU** — this is the local milestone exit criterion.
   6. **GPU handoff artifacts**: `skills/adapt/references/acceptance/ds_v4_runbook.md` (ACC-02) captures the DS V4 invocation, community-version diff target, and pass criteria; `.planning/HANDOFF.md` (ACC-03) lists what to copy to the GPU box and how to `--resume` there.
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 05-01-PLAN.md — Core documentation: SKILL.md surgical rewrite (DOC-01) + loop_engineering/README.md P1-P21 mapping (DOC-02)
+- [ ] 05-02-PLAN.md — Summary generator + acceptance artifacts: summary_generator.py (DOC-04) + ds_v4_runbook.md (ACC-02) + HANDOFF.md (ACC-03) + ACC-01 verification
 
 ---
 
@@ -100,8 +102,8 @@ Created: 2026-06-22
 | 1. Loop Foundation | 4/4 | Complete | 2026-06-22 |
 | 2. GitHub Helpers | 2/2 | Complete | 2026-06-22 |
 | 3. Loop Controller | 2/2 | Complete | 2026-06-22 |
-| 4. Wiring & E2E | 0/2 | Planning | - |
-| 5. Docs & Finalization | 0/0 | Not started | - |
+| 4. Wiring & E2E | 2/2 | Complete | 2026-06-22 |
+| 5. Docs & Finalization | 0/2 | Planning | - |
 
 ---
 
@@ -172,7 +174,7 @@ Per `config.json` (`parallelization: true`) and ARCHITECTURE.md §5:
 - **Phase 2** depends on Phase 1's `repos:` schema and redactor; internally `gh_client.py` primitives are independent, idempotency layer wraps them.
 - **Phase 3** depends on Phases 1–2; FSM skeleton (pure state) and validator-wrapper (gh-dependent) can develop in parallel.
 - **Phase 4** wiring fans out across six phase-agent files (mechanical edits) in parallel; resume + e2e test sequential.
-- **Phase 5** doc-only; safe to draft in parallel with Phase 4 finalization.
+- **Phase 5** doc-only; safe to draft in parallel with Phase 4 finalization. Both plans are Wave 1 (no inter-plan dependencies, no file overlap).
 
 Critical path: **B1 (gh_helper) → B5 (controller) → B6 (SKILL.md hook) → B8 (wire) → B11 (e2e)** spans Phases 2 → 3 → 4.
 
