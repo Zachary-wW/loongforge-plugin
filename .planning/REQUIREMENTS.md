@@ -69,7 +69,7 @@ Date: 2026-06-22
 - [x] **DOC-01** — `skills/adapt/SKILL.md` rewritten to describe the loop FSM, the four user inputs, the maker-checker split, termination budgets, and the "When NOT to use this loop" guard.
 - [x] **DOC-02** — New `skills/adapt/references/loop_engineering/README.md` cites se.rpcx.io/04, /08, /12 and maps each principle to the implementation.
 - [x] **DOC-03** — Each phase's `references/phases/phaseN/agent.md` updated with the two new bullets (pre-edit branch, post-edit PR) gated on `repos:` being present.
-- [ ] **DOC-04** — End-of-run mandatory `phases/phaseN_summary.md` plus a per-run `comprehension_summary.md` (1 page) listing merged commits and one-line rationale.
+- [x] **DOC-04** — End-of-run mandatory `phases/phaseN_summary.md` plus a per-run `comprehension_summary.md` (1 page) listing merged commits and one-line rationale.
 
 ### Compatibility
 
@@ -86,9 +86,9 @@ Date: 2026-06-22
 
 ### Acceptance Handoff (local-only milestone target)
 
-- [ ] **ACC-01** — Local milestone exit criterion is "plugin in runnable state": all pytest green, `loongforge-adapt --dry-run` (or equivalent) drives the full FSM against `FakeGhClient` without GPU; **no live `gh` calls and no GPU validators required to ship this milestone**.
-- [ ] **ACC-02** — `skills/adapt/references/acceptance/ds_v4_runbook.md` exists, captures the exact GPU-machine invocation (HF impl URL, ckpt URL, LoongForge + Loong-Megatron repo URLs for DS V4), the community-version repo URL to diff against, and explicit pass criteria for the DS V4 acceptance run.
-- [ ] **ACC-03** — Session/plugin portability: a `.planning/HANDOFF.md` lists what to copy to the GPU box (branch name, planning dir, skill paths) and how to resume there (`--resume` semantics, env vars, ckpt path expectations).
+- [x] **ACC-01** — Local milestone exit criterion is "plugin in runnable state": all pytest green, `loongforge-adapt --dry-run` (or equivalent) drives the full FSM against `FakeGhClient` without GPU; **no live `gh` calls and no GPU validators required to ship this milestone**.
+- [x] **ACC-02** — `skills/adapt/references/acceptance/ds_v4_runbook.md` exists, captures the exact GPU-machine invocation (HF impl URL, ckpt URL, LoongForge + Loong-Megatron repo URLs for DS V4), the community-version repo URL to diff against, and explicit pass criteria for the DS V4 acceptance run.
+- [x] **ACC-03** — Session/plugin portability: a `.planning/HANDOFF.md` lists what to copy to the GPU box (branch name, planning dir, skill paths) and how to resume there (`--resume` semantics, env vars, ckpt path expectations).
 
 ---
 
@@ -146,7 +146,7 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | DOC-01 | Phase 5 | Complete |
 | DOC-02 | Phase 5 | Complete |
 | DOC-03 | Phase 4 | Complete |
-| DOC-04 | Phase 5 | Pending |
+| DOC-04 | Phase 5 | Complete |
 | COMPAT-01 | Phase 4 | Complete |
 | COMPAT-02 | Phase 1 | Complete |
 | COMPAT-03 | Phase 1 | Complete |
