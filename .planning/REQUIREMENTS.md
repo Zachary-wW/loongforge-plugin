@@ -66,8 +66,8 @@ Date: 2026-06-22
 
 ### Documentation
 
-- [ ] **DOC-01** — `skills/adapt/SKILL.md` rewritten to describe the loop FSM, the four user inputs, the maker-checker split, termination budgets, and the "When NOT to use this loop" guard.
-- [ ] **DOC-02** — New `skills/adapt/references/loop_engineering/README.md` cites se.rpcx.io/04, /08, /12 and maps each principle to the implementation.
+- [x] **DOC-01** — `skills/adapt/SKILL.md` rewritten to describe the loop FSM, the four user inputs, the maker-checker split, termination budgets, and the "When NOT to use this loop" guard.
+- [x] **DOC-02** — New `skills/adapt/references/loop_engineering/README.md` cites se.rpcx.io/04, /08, /12 and maps each principle to the implementation.
 - [x] **DOC-03** — Each phase's `references/phases/phaseN/agent.md` updated with the two new bullets (pre-edit branch, post-edit PR) gated on `repos:` being present.
 - [ ] **DOC-04** — End-of-run mandatory `phases/phaseN_summary.md` plus a per-run `comprehension_summary.md` (1 page) listing merged commits and one-line rationale.
 
@@ -143,8 +143,8 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | SAFE-01 | Phase 1 | Complete |
 | SAFE-02 | Phase 1 | Complete |
 | SAFE-03 | Phase 1 | Complete |
-| DOC-01 | Phase 5 | Pending |
-| DOC-02 | Phase 5 | Pending |
+| DOC-01 | Phase 5 | Complete |
+| DOC-02 | Phase 5 | Complete |
 | DOC-03 | Phase 4 | Complete |
 | DOC-04 | Phase 5 | Pending |
 | COMPAT-01 | Phase 4 | Complete |

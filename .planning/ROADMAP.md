@@ -90,8 +90,8 @@ Created: 2026-06-22
   5. **Local-acceptance gate (ACC-01)**: `pytest skills/adapt/tests/` green AND a `loongforge-adapt --dry-run --hf-impl-url ... --hf-ckpt-url ... --loongforge-repo ... --megatron-repo ...` invocation drives the FSM end-to-end against `FakeGhClient` with **no live `gh` calls and no GPU** — this is the local milestone exit criterion.
   6. **GPU handoff artifacts**: `skills/adapt/references/acceptance/ds_v4_runbook.md` (ACC-02) captures the DS V4 invocation, community-version diff target, and pass criteria; `.planning/HANDOFF.md` (ACC-03) lists what to copy to the GPU box and how to `--resume` there.
 **Plans**: 2 plans
-- [ ] 05-01-PLAN.md — Core documentation: SKILL.md surgical rewrite (DOC-01) + loop_engineering/README.md P1-P21 mapping (DOC-02)
-- [ ] 05-02-PLAN.md — Summary generator + acceptance artifacts: summary_generator.py (DOC-04) + ds_v4_runbook.md (ACC-02) + HANDOFF.md (ACC-03) + ACC-01 verification
+- [x] 05-01-PLAN.md — Core documentation: SKILL.md surgical rewrite (DOC-01) + loop_engineering/README.md P1-P21 mapping (DOC-02)
+- [x] 05-02-PLAN.md — Summary generator + acceptance artifacts: summary_generator.py (DOC-04) + ds_v4_runbook.md (ACC-02) + HANDOFF.md (ACC-03) + ACC-01 verification
 
 ---
 
