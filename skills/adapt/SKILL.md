@@ -2,27 +2,169 @@
 name: adapt
 description: >
   Use when adapting a HuggingFace model to LoongForge, running the six-phase
-  model adaptation workflow, resuming adaptation runs, or coordinating
-  LoongForge phase agents and validation gates.
+  model adaptation workflow with optional loop-engineering mode (repos: gated
+  closed-loop PR/issue/merge/validate cycle on external GitHub repos until all
+  phase validators pass), resuming adaptation runs, or coordinating LoongForge
+  phase agents and validation gates.
 ---
 
 # /loongforge:adapt — LoongForge Model Adaptation
 
-This is the plugin entrypoint for the LoongForge adaptation workflow.
+This skill operates in two modes. When `repos:` is present in `run_inputs.yml`, it runs as a loop-engineering system: every code change goes through a closed loop on external GitHub repos until all phase validators pass. When `repos:` is absent, legacy behavior runs unchanged (COMPAT-01).
 
-Invocation:
+## Loop-First Architecture
 
-```text
-/loongforge:adapt <hf_path> [options]
-/loongforge:adapt --resume <run_dir> [--from-phase <0|1|2|3|4|5>]
+When `repos:` is present in `run_inputs.yml`, the skill operates as a loop-engineering system: every code change goes through a closed loop on external GitHub repos (LoongForge and Loong-Megatron) until all phase validators pass. The loop does not adapt the model -- it adapts the plugin's own bugs out. The plugin itself is what the loop fixes.
+
+### Three Nested Loops
+
+| Layer | Scope | Coordination Bus |
+|-------|-------|-------------------|
+| Inner | Phase-internal self-repair (`attempts.jsonl`) | Disk files |
+| Middle | GitHub PR/issue cycle (loop controller) | GitHub (`gh` CLI) |
+| Outer | Multi-model replay (future) | Run directory |
+
+Key insight: "The plugin itself is what the loop fixes." The loop doesn't adapt the model; it adapts the plugin's own bugs out.
+
+### 12-State FSM
+
+The loop controller (`loop_controller.py`) drives the following state machine:
+
+```
+PROBE -> EDIT -> PR -> MERGE_BASE -> VALIDATE
+    -> (DIAGNOSE -> ISSUE -> FIX_PR -> REVIEW -> MERGE_FIX -> RERUN)*
+    -> EXIT
 ```
 
-Plugin CLI wrapper:
+FSMState values (from `loop_controller.py`):
+
+- `probe` -- initial state, reads run state from disk
+- `edit` -- agent performs code changes
+- `pr` -- create branch and open base PR
+- `merge_base` -- merge the base PR
+- `validate` -- run the phase validator
+- `diagnose` -- classify the validator failure (read-only)
+- `issue` -- open a GitHub issue for the failure
+- `fix_pr` -- advance attempt, create fix branch and fix-PR
+- `review` -- advisory review of fix-PR
+- `merge_fix` -- merge the fix-PR
+- `rerun` -- re-run the phase validator after fix merge
+- `exit` -- loop terminates
+
+ExitReason values (from `loop_controller.py`):
+
+- `validator_passed` -- validator passed on first attempt (no fix needed)
+- `validator_passed_after_fix` -- validator passed after one or more fix cycles
+- `exhausted` -- budget exhausted before validator passed
+- `escalated` -- loop escalated to human (wrong-direction or needs-human)
+- `base_only` -- loop completed with only a base PR (no fix-PR cycle)
+- `human_needed` -- human intervention required (wrong-direction, needs-human, or budget escalation)
+
+### Maker-Checker Split
+
+Edit/PR-author agent and Diagnose agent are distinct sub-agents (P16). The Diagnose agent is read-only: it reads validator output, attempts history, and diff summaries, but never writes code. It classifies failures as one of four categories (from `diagnose_classifier.py` DiagnoseClassification):
+
+- `code-bug` -- structured failure with identifiable root cause
+- `flaky` -- validator result inconsistent across reruns
+- `wrong-direction` -- 3+ consecutive attempts with same failure signature; short-circuits to `human_needed`
+- `needs-human` -- free-text-only failure or unclassifiable; requires human intervention
+
+`wrong-direction` short-circuits to `human_needed` and writes `phases/phaseN/escalation.md`.
+
+### Three-Axis Budget
+
+The loop enforces a three-axis termination budget (from `schema.py` LoopBudget):
+
+| Axis | Default | Ceiling | Enforcement |
+|------|---------|---------|-------------|
+| `max_attempts_per_phase` | 5 | 50 | Per-phase attempt count |
+| `max_attempts_per_run` | 25 | 500 | Total attempts across all phases |
+| `max_wallclock_minutes` | 240 | 10,080 | Elapsed wall-clock time since run start |
+
+Any axis tripping forces exit reason `exhausted` or `human_needed`, never `passed`. Budget is checked before processing validator results (Pitfall 2). The loop never exits with a "hopeful pass" -- if the validator failed but the budget is exhausted, the exit is always a non-passed reason (P3, P18).
+
+### GitHub as Coordination Bus
+
+PRs, issues, and merges coordinate the loop across processes and sessions. This is NOT an in-session agent loop. Each attempt is a fresh `gh`-driven invocation; state is reloaded from disk (`loop_state.yml` + `attempts.jsonl`) every iteration (P1, P5). The loop controller is a single-process, re-entrant Python entrypoint that forks `gh` CLI calls via `GhClient`.
+
+## When NOT to Use This Loop
+
+The loop-engineering mode adds overhead (PR/issue creation, merge cycles, validator reruns). Do not activate it when:
+
+- **Trivial fixes**: one-line config changes with known validators that always pass
+- **No validator exists**: the target phase has no phase validator to serve as the loop gate (P18)
+- **Single-run, no-replay**: scenarios where manual commit-and-push suffices and no closed-loop verification is needed
+- **Full local write access**: cases where the model adapter has full local write access to the target repo and does not need PR-based coordination
+
+In these cases, run without `repos:` in `run_inputs.yml` to use legacy behavior.
+
+## Loop Invocation
+
+### repos: Gated Behavior
+
+When `repos:` is present in `run_inputs.yml`, loop engineering is active. When absent, legacy behavior runs unchanged (COMPAT-01). The four URL inputs activate the loop:
 
 ```bash
-loongforge-adapt <hf_path> [options]
-loongforge-adapt --resume <run_dir> [--from-phase <N>]
+loongforge-adapt <hf_path> \
+  --hf-impl-url <url> --hf-impl-ref <ref> --hf-impl-subpath <path> \
+  --hf-ckpt-url <url> --hf-ckpt-revision <rev> \
+  --loongforge-repo <url> --loongforge-base-ref <ref> \
+  --megatron-repo <url> --megatron-base-ref <ref>
 ```
+
+All four URL flags (`--hf-impl-url`, `--hf-ckpt-url`, `--loongforge-repo`, `--megatron-repo`) must be provided together, or none at all.
+
+### --dry-run Flag
+
+When `--dry-run` is specified, `FakeGhClient` is selected. No live `gh` calls are made, no real PRs or issues are created, and no GPU validators run. This mode validates URL shape, schema, and preflight checks without side effects.
+
+### --resume Flag
+
+When `--resume <run_dir>` is specified, the controller reconstructs FSM state from disk (`LoopState.from_disk` reads `loop_state.yml` + `attempts.jsonl` tail) and reconciles remote PR/issue state against `gh` (RESUME-01, RESUME-02). Use `--from-phase <N>` to reset from a specific phase and skip reconciliation.
+
+## End-of-Run Housekeeping
+
+At run end, the following steps MUST be performed in order:
+
+### 1. Summary Generation (DOC-04)
+
+Invoke summary generation BEFORE any label verification:
+
+```bash
+python3 skills/adapt/lib/summary_generator.py --run-dir <run_dir>
+```
+
+This produces:
+- `<run_dir>/comprehension_summary.md` -- per-run summary (<=1 page) addressing comprehension debt (P20)
+- `<run_dir>/phases/phaseN/phaseN_summary.md` -- per-executed-phase summary
+
+This step is mandatory per DOC-04. It runs in both normal and `--dry-run` modes since it reads disk state only.
+
+### 2. Close Auxiliary Issues
+
+On run completion, all auxiliary bot-created issues should be closed with a summary comment linking the run digest. Use the `close_issue` method with a closing summary comment.
+
+### 3. Label Verification (ROADMAP Criterion 4)
+
+Bot PRs/issues must consistently carry labels: `loongforge-adapt`, `run-<id>`, `phase-<N>`. Run an end-of-run housekeeping verification:
+
+```bash
+python3 skills/adapt/lib/housekeeping_check.py --run-dir <run_dir> --repo <loongforge_repo>
+```
+
+This exits 0 if every bot-created PR and issue has the required labels and no stranded issues remain. It exits 1 on any failure (unlabeled artifacts or stranded issues). This satisfies ROADMAP success criterion 4 ("exits non-zero on any unlabeled or stranded artifact").
+
+**In `--dry-run` mode, skip the housekeeping verification step** since no real GitHub artifacts exist (FakeGhClient PR/issue numbers are not real). When running from a dry-run session, pass `--dry-run` to `housekeeping_check.py`:
+
+```bash
+python3 skills/adapt/lib/housekeeping_check.py --run-dir <run_dir> --repo <loongforge_repo> --dry-run
+```
+
+Summary generation still runs in dry-run mode since it reads disk state only.
+
+### 4. Close Stranded Issues
+
+Close any stranded auxiliary issues identified by the housekeeping check that were not already closed in step 2.
 
 ## Reading Order
 
@@ -161,4 +303,3 @@ Only proceed to the next phase after user confirmation unless `options.autonomou
 ## Autonomous Mode
 
 When `options.autonomous_mode: true`, phase agents return only `passed` or `autonomous_blocked`, never final `human_needed` or `failed`. They exhaust repair budgets internally and record deferred issues in their phase output.
-
