@@ -41,10 +41,11 @@ class TestFSMStateEnum:
 class TestExitReasonEnum:
     def test_exit_reason_enum_values(self):
         from skills.adapt.lib.loop_controller import ExitReason
-        assert len(ExitReason) == 6
+        assert len(ExitReason) == 7
         expected = [
             "VALIDATOR_PASSED", "VALIDATOR_PASSED_AFTER_FIX",
             "EXHAUSTED", "ESCALATED", "BASE_ONLY", "HUMAN_NEEDED",
+            "FIX_NEEDED",
         ]
         for name in expected:
             assert hasattr(ExitReason, name), f"Missing ExitReason.{name}"
