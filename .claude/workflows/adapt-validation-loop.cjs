@@ -143,8 +143,12 @@ The run_dir is typically under /tmp/loongforge_adapt/ or the path specified by -
 Report the run_dir path.`,
       { label: 'init-run', phase: 'Init' }
     )
-    // Extract run_dir from agent output — use a default if not parseable
-    runDir = args.run_dir || `/tmp/loongforge_adapt/deepseek_v4_flash_base_${Date.now()}`
+    // Extract run_dir from agent output — use args.run_dir (required for first iteration)
+    runDir = args.run_dir || ''
+    if (!runDir) {
+      log('ERROR: args.run_dir must be provided for the first iteration. Pass it via Workflow args.')
+      break
+    }
     log(`Run directory: ${runDir}`)
   } else {
     const resumeResult = await agent(
@@ -192,7 +196,7 @@ Trust the agent.md manual and the CLI tools — do NOT reimplement their logic.`
   // ══ PHASE: PHASE 1 ════════════════════════════════════════════════════════
   phase('Phase 1')
 
-  await agent(
+  const phase1Comparison = await agent(
     `Execute Phase 1 of the adapt skill following the REAL phase manual.
 
 1. Read and follow the real Phase 1 manual at:
@@ -240,7 +244,7 @@ Trust the agent.md manual and the CLI tools — do NOT reimplement their logic.`
   // ══ PHASE: PHASE 2 ════════════════════════════════════════════════════════
   phase('Phase 2')
 
-  await agent(
+  const phase2Comparison = await agent(
     `Execute Phase 2 of the adapt skill following the REAL phase manual.
 
 1. Read and follow the real Phase 2 manual at:
@@ -298,20 +302,19 @@ MTP, Indexer, YaRN RoPE)? List gaps.`,
     { label: 'score-phase0', phase: 'Overall Score', schema: COMPARISON_SCHEMA }
   )
 
-  // Aggregate scores
-  const p0 = phase0Comparison || { overall_score: 0, phase0_score: 0, gaps: [] }
-  const p1Score = 0  // will be populated by Phase 1 agent's COMPARISON_SCHEMA output
-  const p2Score = 0  // will be populated by Phase 2 agent's COMPARISON_SCHEMA output
-  // Note: The Phase 1 and Phase 2 agents return COMPARISON_SCHEMA results.
-  // In the workflow engine, those structured outputs are available but not
-  // directly accessible as JS variables here. The overall score calculation
-  // would need to be adjusted based on the workflow engine's capability.
-  // For now, use phase0_score as a proxy and let the Diagnose step catch gaps.
-  score = p0.overall_score || 0
-  bestScore = Math.max(bestScore, score)
-  allGaps = [...(p0.gaps || [])]
+  // Aggregate scores from Phase 0, 1, 2 comparisons
+  const p0 = phase0Comparison || { overall_score: 0, phase0_score: 0, phase1_score: 0, phase2_score: 0, gaps: [] }
+  const p1 = phase1Comparison || { overall_score: 0, phase0_score: 0, phase1_score: 0, phase2_score: 0, gaps: [] }
+  const p2 = phase2Comparison || { overall_score: 0, phase0_score: 0, phase1_score: 0, phase2_score: 0, gaps: [] }
 
-  log(`Iteration ${iteration} — estimated score: ${score.toFixed(2)}, gaps: ${allGaps.length}`)
+  const phase0s = Math.max(p0.phase0_score || 0, p1.phase0_score || 0, p2.phase0_score || 0)
+  const phase1s = Math.max(p0.phase1_score || 0, p1.phase1_score || 0, p2.phase1_score || 0)
+  const phase2s = Math.max(p0.phase2_score || 0, p1.phase2_score || 0, p2.phase2_score || 0)
+  score = (phase0s + phase1s + phase2s) / 3
+  bestScore = Math.max(bestScore, score)
+  allGaps = [...(p0.gaps || []), ...(p1.gaps || []), ...(p2.gaps || [])]
+
+  log(`Iteration ${iteration} — score: ${score.toFixed(2)} (p0: ${phase0s.toFixed(2)}, p1: ${phase1s.toFixed(2)}, p2: ${phase2s.toFixed(2)}), gaps: ${allGaps.length}`)
 
   if (score >= PASS_THRESHOLD) {
     log(`PASS threshold reached! Score: ${score.toFixed(2)} >= ${PASS_THRESHOLD}`)
