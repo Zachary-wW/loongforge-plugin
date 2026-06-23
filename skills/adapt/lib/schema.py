@@ -111,7 +111,7 @@ class LoopBlockOutput(BaseModel):
     max_attempts: int = Field(5, ge=1)
     exit_reason: Literal[
         "validator_passed", "validator_passed_after_fix",
-        "exhausted", "escalated", "base_only", "human_needed",
+        "exhausted", "escalated", "base_only", "human_needed", "fix_needed",
     ] = "validator_passed"
     attempts_journal: str = ""
 

@@ -71,6 +71,7 @@ class ExitReason(str, Enum):
     ESCALATED = "escalated"
     BASE_ONLY = "base_only"
     HUMAN_NEEDED = "human_needed"
+    FIX_NEEDED = "fix_needed"  # pause_before_fix mode: agent must inject fix code
 
 
 # ---------------------------------------------------------------------------
@@ -362,12 +363,18 @@ def run_phase_loop(
     dry_run: bool = False,
     max_iterations: int = 100,
     repos_info: dict | None = None,
+    pause_before_fix: bool = False,
 ) -> ExitReason:
     """Re-entrant controller implementing LOOP-01 FSM dispatch.
 
     The repos_info dict (default None) contains loongforge_repo, loongforge_base_ref,
     megatron_repo, megatron_ref, run_id. When None, PR/issue steps are skipped
     (local-only mode).
+
+    When pause_before_fix is True, the FSM pauses after the ISSUE state instead of
+    recursing into FIX_PR. The loop exits with ExitReason.FIX_NEEDED and writes
+    current_state=fix_pr to loop_state.yml. The calling agent must then write fix
+    code and re-invoke run_phase_loop (or the CLI wrapper with --continue-fix).
 
     Returns ExitReason when the loop terminates.
     """
@@ -402,13 +409,13 @@ def run_phase_loop(
         case FSMState.PROBE:
             state = _transition(state, FSMState.EDIT, run_dir, kind="probe")
             state.persist(run_dir)
-            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
+            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info, pause_before_fix)
 
         # --- EDIT: transition to PR ---
         case FSMState.EDIT:
             state = _transition(state, FSMState.PR, run_dir, kind="edit")
             state.persist(run_dir)
-            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
+            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info, pause_before_fix)
 
         # --- PR: create branch + open PR if repos_info ---
         case FSMState.PR:
@@ -431,7 +438,7 @@ def run_phase_loop(
             state = _transition(state, FSMState.MERGE_BASE, run_dir, kind="pr",
                                 pr_url=f"https://github.com/{repos_info.get('loongforge_repo', '')}/pull/{state.pr_number}" if repos_info and state.pr_number else "")
             state.persist(run_dir)
-            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
+            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info, pause_before_fix)
 
         # --- MERGE_BASE: merge base PR if repos_info ---
         case FSMState.MERGE_BASE:
@@ -444,7 +451,7 @@ def run_phase_loop(
                     state.merge_commit_sha = pr_view["merge_commit_sha"]
             state = _transition(state, FSMState.VALIDATE, run_dir, kind="merge_base")
             state.persist(run_dir)
-            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
+            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info, pause_before_fix)
 
         # --- VALIDATE: run validator ---
         case FSMState.VALIDATE:
@@ -497,12 +504,12 @@ def run_phase_loop(
                 # Flake rerun: SAME attempt number (no _advance_attempt)
                 state = _transition(state, FSMState.RERUN, run_dir, kind="validate_rerun", verdict="failed")
                 state.persist(run_dir)
-                return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
+                return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info, pause_before_fix)
 
             # Normal failure: transition to DIAGNOSE
             state = _transition(state, FSMState.DIAGNOSE, run_dir, kind="validate", verdict="failed", validator=result.name)
             state.persist(run_dir)
-            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
+            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info, pause_before_fix)
 
         # --- DIAGNOSE: classify failure ---
         case FSMState.DIAGNOSE:
@@ -530,7 +537,7 @@ def run_phase_loop(
             # CODE_BUG or FLAKY: transition to ISSUE
             state = _transition(state, FSMState.ISSUE, run_dir, kind="diagnose", verdict=diagnosis.classification.value)
             state.persist(run_dir)
-            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
+            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info, pause_before_fix)
 
         # --- ISSUE: open GitHub issue ---
         case FSMState.ISSUE:
@@ -553,9 +560,19 @@ def run_phase_loop(
                 except (ValueError, IndexError):
                     pass
 
+            if pause_before_fix:
+                # Pause: set state to fix_pr so --continue-fix can resume,
+                # but exit now so the calling agent can inject fix code.
+                state.current_state = FSMState.FIX_PR
+                state.exit_reason = ExitReason.FIX_NEEDED
+                _transition(state, FSMState.FIX_PR, run_dir, kind="issue")
+                _write_phase_output(run_dir, phase, state, None, budget)
+                state.persist(run_dir)
+                return ExitReason.FIX_NEEDED
+
             state = _transition(state, FSMState.FIX_PR, run_dir, kind="issue")
             state.persist(run_dir)
-            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
+            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info, pause_before_fix)
 
         # --- FIX_PR: create a fix branch + fix-PR ---
         case FSMState.FIX_PR:
@@ -580,13 +597,13 @@ def run_phase_loop(
                     state.fix_pr_number = None
             state = _transition(state, FSMState.REVIEW, run_dir, kind="fix_pr")
             state.persist(run_dir)
-            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
+            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info, pause_before_fix)
 
         case FSMState.REVIEW:
             # Advisory per P11: just log the review state
             state = _transition(state, FSMState.MERGE_FIX, run_dir, kind="review")
             state.persist(run_dir)
-            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
+            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info, pause_before_fix)
 
         case FSMState.MERGE_FIX:
             if repos_info:
@@ -597,7 +614,7 @@ def run_phase_loop(
                     gh.merge_pr(owner_repo, fix_pr_num)
             state = _transition(state, FSMState.RERUN, run_dir, kind="merge_fix")
             state.persist(run_dir)
-            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
+            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info, pause_before_fix)
 
         case FSMState.RERUN:
             megatron_repo = repos_info.get("megatron_repo") if repos_info else None
@@ -647,7 +664,7 @@ def run_phase_loop(
             # Failed: transition to DIAGNOSE
             state = _transition(state, FSMState.DIAGNOSE, run_dir, kind="rerun", verdict="failed")
             state.persist(run_dir)
-            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info)
+            return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info, pause_before_fix)
 
         # --- EXIT: return exit_reason ---
         case FSMState.EXIT:
