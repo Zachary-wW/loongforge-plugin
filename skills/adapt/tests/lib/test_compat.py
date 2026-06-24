@@ -60,16 +60,20 @@ def _extract_hooks_section(agent_md: Path) -> str:
 
 
 def _normalize_phase_numbers(section: str) -> str:
-    """Replace phase0..phase5 with phaseN in hooks sections for comparison.
+    """Replace phase0..phase6 with phaseN in hooks sections for comparison.
 
     Handles patterns like:
-      - phase0, phase1, ..., phase5
-      - phase=0, phase=1, ..., phase=5
+      - phase0, phase1, ..., phase6
+      - phase=0, phase=1, ..., phase=6
+    Also normalizes phase-specific gate file names (verify.md,
+    performance_tuning_gate.md) to a generic gate pattern.
     """
     # First normalize phase=N patterns
     result = re.sub(r"phase=[0-6]", "phase=N", section)
     # Then normalize phaseN patterns (e.g. in branch names and paths)
     result = re.sub(r"phase[0-6]", "phaseN", result)
+    # Normalize phase-specific gate file names for structural comparison
+    result = re.sub(r"performance_tuning_gate\.md", "verify.md", result)
     return result
 
 

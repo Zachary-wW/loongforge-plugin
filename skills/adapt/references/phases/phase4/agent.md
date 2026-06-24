@@ -60,7 +60,7 @@ After writing all phase artifacts and before running the validator:
    - **Megatron repo**: `gh_helper.open_pr(owner_repo, head=<branch>, base=<base_ref>, run_id=<run_id>, phase=4, attempt=<K>, kind="base")`. The Megatron PR body MUST pin the LoongForge commit SHA (VAL-05: `loongforge_commit_sha: <sha>`).
 2. Record both PR numbers and URLs in `phases/phase4_output.yml` under the `pr:` block.
 3. Merge **both** PRs via `gh_helper.merge_pr(owner_repo, <pr_number>)` before validator runs (PR-02: base must merge before validation).
-4. If any PR diff touches protected paths under `references/phases/phase4/` or `loongforge-phase-gate`, the loop controller will handle escalation to `human_needed` (PR-06).
+4. If any PR diff touches protected paths under `references/phases/phase4/performance_tuning_gate.md` or `loongforge-phase-gate`, the loop controller will handle escalation to `human_needed` (PR-06).
 
 ## State Machine
 

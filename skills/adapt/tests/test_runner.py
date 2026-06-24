@@ -372,9 +372,9 @@ def test_phase_final_status_docs_exclude_failed_checkpoint_status():
     assert "phase.status: `passed` or `human_needed`" in skill
     assert "attempt.status: `passed`, `failed`, or `human_needed`" in skill
 
-    phase4 = _read_adapt_doc("references/phases/phase4/agent.md")
-    assert "status: passed | human_needed" in phase4
-    assert "status: passed | failed | human_needed" not in phase4
+    phase5 = _read_adapt_doc("references/phases/phase5/agent.md")
+    assert "status: passed | human_needed" in phase5
+    assert "status: passed | failed | human_needed" not in phase5
 
 
 def test_skill_documents_claude_code_harness_reuse_and_loop_limits():
