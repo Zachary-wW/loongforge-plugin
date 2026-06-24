@@ -128,7 +128,7 @@ def reconcile_run(
     """Reconcile all phases with loop_state.yml against gh.
 
     When from_phase is specified, skip reconciliation (user explicitly resetting).
-    Only reconciles phases 0-5 that have a loop_state.yml file.
+    Only reconciles phases 0-6 that have a loop_state.yml file.
     Returns aggregated mismatches from all phases, or None if repos not present
     or from_phase is specified.
     """
@@ -136,7 +136,7 @@ def reconcile_run(
         return None
 
     all_mismatches: list[MismatchDetail] = []
-    for phase in range(6):
+    for phase in range(7):
         state_path = run_dir / "phases" / f"phase{phase}" / "loop_state.yml"
         if not state_path.exists():
             continue

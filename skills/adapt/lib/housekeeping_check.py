@@ -34,7 +34,7 @@ def run_housekeeping_check(
         return (True, [])
     errors: list[str] = []
     run_id = run_dir.name
-    for phase in range(6):
+    for phase in range(7):
         state_path = run_dir / "phases" / f"phase{phase}" / "loop_state.yml"
         if not state_path.exists():
             continue

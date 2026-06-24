@@ -57,7 +57,7 @@ def generate_phase_summary(run_dir: Path, phase: int) -> str:
 def generate_comprehension_summary(run_dir: Path) -> str:
     """Generate 1-page comprehension summary across all phases (DOC-04, D-02)."""
     rows = []
-    for phase in range(6):
+    for phase in range(7):
         state_path = run_dir / "phases" / f"phase{phase}" / "loop_state.yml"
         if not state_path.exists():
             continue
@@ -84,7 +84,7 @@ def write_summaries(run_dir: Path) -> None:
     """Write comprehension_summary.md and per-phase summaries to disk."""
     comp = generate_comprehension_summary(run_dir)
     (run_dir / "comprehension_summary.md").write_text(comp)
-    for phase in range(6):
+    for phase in range(7):
         state_path = run_dir / "phases" / f"phase{phase}" / "loop_state.yml"
         if state_path.exists():
             phase_dir = run_dir / "phases" / f"phase{phase}"

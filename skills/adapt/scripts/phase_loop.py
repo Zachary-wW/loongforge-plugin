@@ -80,8 +80,8 @@ def main(argv: list[str] | None = None) -> int:
         description="Run the adapt phase loop (FSM) for a single phase.",
     )
     parser.add_argument("--run-dir", required=True, type=Path, help="Path to the run directory")
-    parser.add_argument("--phase", required=True, type=int, choices=range(0, 6),
-                        help="Phase number (0-5)")
+    parser.add_argument("--phase", required=True, type=int, choices=range(0, 7),
+                        help="Phase number (0-6)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Use FakeGhClient; no live gh writes")
     parser.add_argument("--continue-fix", action="store_true",

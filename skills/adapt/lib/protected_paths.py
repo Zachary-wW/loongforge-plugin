@@ -10,6 +10,7 @@ PROTECTED_PATHS: tuple[str, ...] = (
     # Phase validators (the "checker" side of maker-checker)
     "skills/adapt/references/phases/*/verify.md",
     "skills/adapt/references/phases/*/loss_diff.md",
+    "skills/adapt/references/phases/*/performance_tuning_gate.md",
     "skills/adapt/references/phases/*/feature_compat.md",
     "skills/adapt/references/phases/*/kb_consistency.md",
     # Phase gate enforcement

@@ -215,11 +215,11 @@ def init_run_dir(
     """Create run_dir, write run_inputs.yml and legacy run_state.json, return inputs dict."""
     Path(run_dir).mkdir(parents=True, exist_ok=True)
     phases_dir = Path(run_dir) / "phases"
-    for i in range(6):
+    for i in range(7):
         phase_dir = phases_dir / f"phase{i}"
         phase_dir.mkdir(parents=True, exist_ok=True)
-        # Create logs subdirectory for Phase 1-4
-        if 1 <= i <= 4:
+        # Create logs subdirectory for Phase 1-5
+        if 1 <= i <= 5:
             (phase_dir / "logs").mkdir(parents=True, exist_ok=True)
 
     inputs = _build_run_inputs(
@@ -256,7 +256,7 @@ def resume_run_dir(run_dir: str, from_phase: int | None = None) -> dict:
     """Load run_inputs.yml, optionally backfill from legacy state, and clear phase outputs from from_phase onward."""
     inputs = load_or_backfill_run_inputs(run_dir)
     if from_phase is not None:
-        for phase_num in range(from_phase, 6):
+        for phase_num in range(from_phase, 7):
             clear_phase_output(run_dir, phase_num)
         # Also clear legacy phase keys when legacy state exists. Missing
         # run_state.json is allowed because run_inputs.yml is authoritative.
@@ -265,7 +265,7 @@ def resume_run_dir(run_dir: str, from_phase: int | None = None) -> dict:
         except FileNotFoundError:
             save_legacy_state(run_dir, inputs, current_state=f"PHASE{from_phase}_RUNNING")
         else:
-            for phase_num in range(from_phase, 6):
+            for phase_num in range(from_phase, 7):
                 legacy.get("phases", {}).pop(f"phase{phase_num}", None)
             legacy["current_state"] = f"PHASE{from_phase}_RUNNING"
             Path(run_dir, "run_state.json").write_text(
@@ -373,10 +373,10 @@ def main(argv=None):
     parser.add_argument(
         "--from-phase",
         type=str,
-        choices=["0", "1", "2", "3", "4", "5"],
+        choices=["0", "1", "2", "3", "4", "5", "6"],
         default=None,
         metavar="N",
-        help="Used with --resume, restart from the specified phase (0/1/2/3/4/5)",
+        help="Used with --resume, restart from the specified phase (0/1/2/3/4/5/6)",
     )
     args = parser.parse_args(argv)
 
