@@ -39,7 +39,7 @@ def test_empty_actual_labels():
 def test_dry_run_returns_true_no_subprocess(tmp_path: Path):
     """dry_run=True returns (True, []) without any subprocess calls."""
     run_dir = tmp_path / "adaptation_run_test"
-    for i in range(6):
+    for i in range(7):
         (run_dir / "phases" / f"phase{i}").mkdir(parents=True, exist_ok=True)
     # Write a loop_state.yml with fake data
     phase1_dir = run_dir / "phases" / "phase1"

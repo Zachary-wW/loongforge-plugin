@@ -18,7 +18,7 @@ import pytest
 def run_dir(tmp_path: Path) -> Path:
     """Create a synthetic run directory with phase subdirectories."""
     rd = tmp_path / "adaptation_run_20260623"
-    for i in range(6):
+    for i in range(7):
         (rd / "phases" / f"phase{i}").mkdir(parents=True, exist_ok=True)
     return rd
 

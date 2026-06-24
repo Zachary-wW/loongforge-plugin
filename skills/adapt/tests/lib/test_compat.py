@@ -25,7 +25,7 @@ from skills.adapt.tests.lib.test_loop_controller import _setup_run_dir, _write_l
 # ---------------------------------------------------------------------------
 
 AGENTS_DIR = Path(__file__).resolve().parents[2] / "references" / "phases"
-PHASE_DIRS = [AGENTS_DIR / f"phase{n}" for n in range(6)]
+PHASE_DIRS = [AGENTS_DIR / f"phase{n}" for n in range(7)]
 
 
 # ---------------------------------------------------------------------------
@@ -67,9 +67,9 @@ def _normalize_phase_numbers(section: str) -> str:
       - phase=0, phase=1, ..., phase=5
     """
     # First normalize phase=N patterns
-    result = re.sub(r"phase=[0-5]", "phase=N", section)
+    result = re.sub(r"phase=[0-6]", "phase=N", section)
     # Then normalize phaseN patterns (e.g. in branch names and paths)
-    result = re.sub(r"phase[0-5]", "phaseN", result)
+    result = re.sub(r"phase[0-6]", "phaseN", result)
     return result
 
 

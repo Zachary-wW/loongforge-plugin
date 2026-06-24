@@ -36,9 +36,9 @@ def _init_run_dir(run_dir: Path, with_repos: bool = False) -> None:
 
     run_dir.mkdir(parents=True, exist_ok=True)
     phases_dir = run_dir / "phases"
-    for i in range(6):
+    for i in range(7):
         (phases_dir / f"phase{i}").mkdir(parents=True, exist_ok=True)
-        if 1 <= i <= 4:
+        if 1 <= i <= 5:
             (phases_dir / f"phase{i}" / "logs").mkdir(parents=True, exist_ok=True)
 
     inputs = RunInputs(
