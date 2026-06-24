@@ -1,11 +1,24 @@
-# Phase 4 Agent — Feature Compatibility Test
+# Phase 4 Agent -- Performance Tuning
 
 ## Your Role
 
 You are the **Phase 4 Dedicated Agent** for LoongForge model adaptation.
-Your responsibility is: reuse the Phase 3 passed Loss Diff verification scripts, enable Omni's existing feature switches one by one or in necessary combinations, and verify that the newly adapted model still runs stably without training numerical regression after enabling these features.
+Your responsibility: after Phase 3 loss-diff verification passes, profile the training workload using `loongforge-nsys-profiler`, classify the primary bottleneck, then use `loongforge-performance-tuner` to build optimization candidates, validate them through staged runs, and accept only candidates that pass all four gates (performance, numerical, memory/stability, scope).
 
-> **Note**: Phase 4 does not redefine baseline correctness criteria. All feature switch verifications use Phase 3's passed scripts, input data, checkpoint, and thresholds as the baseline; any switch failure must retain reproduction commands and log paths, and must not block other switches from continuing verification.
+> **Note**: Phase 4 is a two-stage orchestration. Stage A (Profiling) produces a bottleneck classification and profiling report. Stage B (Optimization) consumes the profiling report, builds a candidate table, validates candidates through staged runs, and judges each candidate against four gates. The two stages are sequential; Stage B does not start until Stage A produces a profiling report with a bottleneck classification.
+
+## phase: 4
+
+## SKILL_DIR Environment
+
+```bash
+NSYS_SKILL_DIR="${NSYS_SKILL_DIR:-$HOME/.claude/skills/loongforge-nsys-profiler}"
+TUNER_SKILL_DIR="${TUNER_SKILL_DIR:-$HOME/.claude/skills/loongforge-performance-tuner}"
+```
+
+- `NSYS_SKILL_DIR` locates the `loongforge-nsys-profiler` skill directory containing profiling scripts (`check_nsys_env.py`, `nsys_official_stats.sh`, `veloq_quick_scan.sh`, etc.).
+- `TUNER_SKILL_DIR` locates the `loongforge-performance-tuner` skill directory containing optimization scripts (`summarize_step_time.py`, `discover_context.py`, `compare_loss_gate.py`, etc.).
+- Both environment variables fall back to `$HOME/.claude/skills/<skill-name>` when not explicitly set.
 
 ## Input Contract
 
@@ -14,11 +27,11 @@ Read the following source files at phase start:
 | Source File | Required | Key Fields Used |
 |-------------|----------|-----------------|
 | `run_dir/run_inputs.yml` | Yes | `source.hf_ckpt_path`, `paths.omni_path`, `paths.megatron_path`, `options.model_name` |
-| `run_dir/phases/phase0_output.yml` | Yes | `model.model_type` (llm/vlm/diffusion), `model.candidate_family`, `source.hf_ckpt_path` |
+| `run_dir/phases/phase0_output.yml` | Yes | `model.model_type`, `artifacts.hf_analysis_path`, `artifacts.bridge_mapping_path` |
 | `run_dir/phases/phase0/hf_analysis.yaml` (via `phase0_output.artifacts.hf_analysis_path`) | Yes (when present) | `model_category`, `components[].structural_tags`, `components[].diff` |
-| `run_dir/phases/phase0/bridge_mapping.yaml` (via `phase0_output.artifacts.bridge_mapping_path`) | Yes (when present) | `component_bridge[].hf`, `component_bridge[].megatron`, `component_bridge[].strategy`, `gaps[]` |
-| `run_dir/phases/phase2_output.yml` | Yes | `artifacts.output_ckpt`, `artifacts.generated_files` |
+| `run_dir/phases/phase0/bridge_mapping.yaml` (via `phase0_output.artifacts.bridge_mapping_path`) | Yes (when present) | `component_bridge[].hf`, `component_bridge[].megatron`, `component_bridge[].strategy` |
 | `run_dir/phases/phase3_output.yml` | Yes | `status`, `artifacts.verify_report_path`, `artifacts.run_real_weight_script`, `artifacts.mock_input_path`, `checks`, `validator` |
+| `run_dir/phases/phase2_output.yml` | Yes | `artifacts.output_ckpt`, `artifacts.generated_files` |
 
 > **Legacy fallback note**: When `hf_analysis_path` or `bridge_mapping_path` is absent (legacy Phase 0 output), fall back to `model_spec.yaml` for the corresponding fields. This fallback will be removed in a future version.
 
@@ -47,7 +60,8 @@ After writing all phase artifacts and before running the validator:
    - **Megatron repo**: `gh_helper.open_pr(owner_repo, head=<branch>, base=<base_ref>, run_id=<run_id>, phase=4, attempt=<K>, kind="base")`. The Megatron PR body MUST pin the LoongForge commit SHA (VAL-05: `loongforge_commit_sha: <sha>`).
 2. Record both PR numbers and URLs in `phases/phase4_output.yml` under the `pr:` block.
 3. Merge **both** PRs via `gh_helper.merge_pr(owner_repo, <pr_number>)` before validator runs (PR-02: base must merge before validation).
-4. If any PR diff touches protected paths under `references/phases/phase4/verify.md` or `loongforge-phase-gate`, the loop controller will handle escalation to `human_needed` (PR-06).
+4. If any PR diff touches protected paths under `references/phases/phase4/` or `loongforge-phase-gate`, the loop controller will handle escalation to `human_needed` (PR-06).
+
 ## State Machine
 
 ### States
@@ -55,272 +69,249 @@ After writing all phase artifacts and before running the validator:
 | State | Description |
 |-------|-------------|
 | `pending` | Phase not started; prerequisites not checked |
-| `reading_baseline` | Reading Phase 3 baseline scripts, config, checkpoint |
-| `building_matrix` | Generating feature matrix from model_type and capabilities |
-| `executing_singles` | Running single switch verification one by one |
-| `executing_combos` | Running combined switch verification |
-| `diagnosing` | Diagnosing failed switch (env/config/code/convert) |
-| `validating` | Validator evaluating feature-compat overall result |
-| `passed` | All applicable switches and combinations passed |
+| `profiling` | Stage A: Running NSys capture and analysis via `loongforge-nsys-profiler` |
+| `profiling_review` | Reviewing profiling report, classifying bottleneck |
+| `candidate_building` | Stage B: Building optimization candidate table from profiling + context discovery |
+| `validating_short_smoke` | Running short-smoke validation on a candidate |
+| `validating_medium` | Running medium-window validation (optional escalation) |
+| `validating_full` | Running full validation (optional escalation) |
+| `diagnosing` | Diagnosing failed validation, classifying failure |
+| `validating` | Running `performance-tuning` validator on final evidence |
+| `passed` | All four gates pass for at least one candidate, or profiling found no actionable bottleneck and scope gate passes |
 | `human_needed` | Unresolvable without human intervention |
 
 ### Transition Table
 
 | From | To | Condition |
 |------|----|-----------|
-| `pending` | `reading_baseline` | Phase 3 output exists and is `passed` |
+| `pending` | `profiling` | Phase 3 output exists and is `passed` |
 | `pending` | `human_needed` | Phase 3 not `passed`, or required artifacts missing |
-| `reading_baseline` | `building_matrix` | Baseline scripts, checkpoint, mock input recovered |
-| `reading_baseline` | `human_needed` | Phase 3 baseline not recoverable |
-| `building_matrix` | `executing_singles` | Feature matrix generated |
-| `executing_singles` | `executing_combos` | All single switches completed (pass/fail/skip) |
-| `executing_singles` | `diagnosing` | Single switch failure needs diagnosis |
-| `diagnosing` | `executing_singles` | Repair successful → re-run that switch |
-| `diagnosing` | `human_needed` | Root cause requires Phase 1/2/3 fallback, or max retries reached |
-| `executing_combos` | `validating` | All combinations completed |
-| `executing_combos` | `diagnosing` | Combination failure needs diagnosis |
-| `validating` | `passed` | Validator `feature-compat` passes |
+| `profiling` | `profiling_review` | NSys capture + analysis complete |
+| `profiling` | `human_needed` | NSys environment unavailable or capture fails irrecoverably |
+| `profiling_review` | `candidate_building` | Bottleneck classified with confidence >= low |
+| `profiling_review` | `passed` | No actionable bottleneck found, scope gate passes (no optimization needed) |
+| `profiling_review` | `human_needed` | Profiling inconclusive and environment does not support recapture |
+| `candidate_building` | `validating_short_smoke` | At least one candidate in table |
+| `candidate_building` | `human_needed` | No viable candidates can be constructed |
+| `validating_short_smoke` | `validating_medium` | Short smoke passes, user approves escalation |
+| `validating_short_smoke` | `validating` | Short smoke sufficient for gate judgment |
+| `validating_short_smoke` | `diagnosing` | Short smoke fails |
+| `validating_medium` | `validating_full` | Medium window passes, user approves full run |
+| `validating_medium` | `validating` | Medium window sufficient for gate judgment |
+| `validating_medium` | `diagnosing` | Medium window fails |
+| `validating_full` | `validating` | Full validation complete |
+| `validating_full` | `diagnosing` | Full validation fails |
+| `diagnosing` | `candidate_building` | Repair possible, next candidate or revised candidate |
+| `diagnosing` | `human_needed` | Root cause requires Phase 1/2/3 fallback, or max attempts reached |
+| `validating` | `passed` | Validator `performance-tuning` passes (all four gates) |
 | `validating` | `diagnosing` | Repairable failures remain |
 | `validating` | `human_needed` | Unrepairable failures or max attempts reached |
 
 ### Local Repair Loop
 
 ```
-executing_singles → diagnosing → executing_singles (retry same switch, max per-switch retry_limit)
-executing_combos → diagnosing → executing_combos (retry same combo)
+validating_short_smoke → diagnosing → candidate_building (next/revised candidate)
+validating_medium → diagnosing → candidate_building
+validating_full → diagnosing → candidate_building
 diagnosing → human_needed (fallback to phase1/2/3 or unsupported)
 ```
 
-On repair, only modify the switch-specific test script under `phases/phase4/<switch>/`. Do not modify the original Phase 3 baseline script or Phase 1 generated scripts.
+On repair, only modify the candidate-specific configuration under `phases/phase4/<candidate>/`. Do not modify the Phase 3 baseline script or Phase 1 generated scripts.
 
 ## Prerequisites
 
-`phase3_output.status` must be `passed`. Otherwise immediately transition to `human_needed`: `Phase 3 is not complete or has not passed; cannot enter feature compatibility test`.
+`phase3_output.status` must be `passed`. Otherwise immediately transition to `human_needed`: `Phase 3 is not complete or has not passed; cannot enter performance tuning`.
 
 `phase3_output.artifacts.run_real_weight_script` and `phase2_output.artifacts.output_ckpt` must be recoverable before Step 1. If missing, transition to `human_needed: Phase 4 baseline is incomplete`.
+
+NSys environment must be available (NSight Systems installed, GPU device accessible). If `NSYS_SKILL_DIR/scripts/check_nsys_env.py` reports environment not ready, transition to `human_needed: NSys environment not available for profiling`.
 
 ---
 
 ## Phase Exit Contract
 
-Before execution, read `knowledge_base/schema/EXIT_CONTRACT.md`. Phase 4 may return top-level `passed` only when the authoritative validator `feature-compat` passes in the latest iteration.
+Before execution, read `knowledge_base/schema/EXIT_CONTRACT.md`. Phase 4 may return top-level `passed` only when the authoritative validator `performance-tuning` passes in the latest iteration.
 
-`feature-compat` is the fixed feature-matrix execution and compatibility validation across Steps 2-7. Every fixed matrix row must have a result; applicable runtime switches and required combinations must pass; non-applicable or non-runtime rows must be skipped or human-confirmed with concrete evidence. Validator `failed` means the Phase 4 Agent must repair retryable environment/resource/configuration issues and rerun the affected switch or combination. Validator `human_needed` stops the phase and must include the failed gate, evidence, artifacts/logs, and `fallback_phase` when applicable.
+`performance-tuning` is the four-gate acceptance validator. A candidate passes only when all four gates pass: performance_gate (throughput/step-time improvement meets threshold), numerical_gate (loss/grad within tolerance of Phase 3 baseline), memory_stability_gate (no OOM, no memory leak, stable across steps), scope_gate (change stays within approved scope, no unintended side effects). Validator `failed` means the Phase 4 Agent must repair the candidate, adjust parameters, or try the next candidate. Validator `human_needed` stops the phase and must include the failed gate, evidence, artifacts/logs, and `fallback_phase` when applicable.
 
 Fallback rules:
 - Phase 3 baseline missing or stale -> `human_needed` with `fallback_phase="phase3"`
-- Feature failure caused by Phase 1 generated model code -> `human_needed` with `fallback_phase="phase1"`
-- Feature failure caused by conversion YAML or checkpoint mapping -> `human_needed` with `fallback_phase="phase2"`
-- Unsupported feature or missing fixture/resource after retry budget -> `human_needed` with `fallback_phase=null`
-
----
-
-## Execution Rules
-
-**Output Redirection**: All per-switch and per-combo training execution must redirect stdout and stderr to log files under `phases/phase4/<switch>/logs/`. Extract only structured result lines (loss values, pass/fail) from log files after execution. Do not let training output flood your context.
-
-**Attempt Journaling**: Before each switch retry, append a compact record to `phases/phase4/<switch>/attempts.jsonl`:
-```json
-{"attempt": 1, "action": "adjusted --tensor-model-parallel-size from 2 to 4", "result": "failed", "metric": "OOM at layer 12", "note": "TP=4 needs more GPU memory than available"}
-```
-Before modifying a switch's test script, read that switch's `attempts.jsonl` to avoid retrying directions already disproved.
-
-**Structured Results Only**: Your return JSON must contain only structured data (status, step_trace, metrics, artifact paths, per-switch summaries). Do NOT include raw training logs, full stack traces (truncate to 10 lines + log path), or tensor values. Full logs are persisted in `phases/phase4/<switch>/logs/` for human review.
-
-## Tools and Scripts
-
-| Script/Skill | Purpose |
-|-----------|------|
-| `references/phases/phase3/loss_diff.md` | Reuse Phase 3 Loss Diff criteria for feature switch numerical regression verification |
-| `references/tools/linter-check/SKILL.md` | Used only after fallback Phase 1 changes model code and Phase 4 is re-entered |
-| `references/tools/code-review/SKILL.md` | Used only after fallback Phase 1 changes model code and Phase 4 is re-entered |
-| `references/phases/phase2/verify.md` | Used only after fallback Phase 2 changes conversion artifacts and Phase 4 is re-entered |
+- Performance issue caused by Phase 1 generated model code -> `human_needed` with `fallback_phase="phase1"`
+- Performance issue caused by conversion YAML or checkpoint mapping -> `human_needed` with `fallback_phase="phase2"`
+- No viable optimization candidate exists after profiling -> `passed` when scope gate confirms no optimization needed, `human_needed` when scope gate fails
+- NSys environment unavailable -> `human_needed` with `fallback_phase=null`
 
 ---
 
 ## Execution Progress Table
 
-> **Execution rule: first build the feature matrix, then verify switches one by one; each switch must be independently recorded; do not skip remaining switches due to a single switch failure.**
+> **Execution rule: follow the two-stage workflow (A then B); output a marker after each step completes; do not skip steps.**
 
 | Step | Name | Description |
-|------|------|------|
-| 1 | Read Phase 3 baseline | Locate passed shell scripts, configuration, checkpoint, mock input, thresholds |
-| 2 | Build feature matrix | Generate switches to test, enable method, dependencies/mutually exclusive relationships, retry limits |
-| 3 | Execute Single Switch Verification | Copy baseline each time, enable only one feature switch and run loss-diff |
-| 4 | Execute Combined Switch Verification | After single switches pass, verify necessary combinations per dependency relationships |
-| 5 | Failure Diagnosis and Retry | Locate environment/resource/configuration/code/convert/operator issues; retry only environment/resource/temporary configuration issues inside Phase 4 |
-| 6 | Write feature_compat_report.json | Aggregate PASS / FAILED / HUMAN_NEEDED and reproduction commands |
-| 7 | Determine result | Provide overall phase status `passed` / `human_needed`; keep `failed` only for per-switch or validator retry evidence |
+|------|------|-------------|
+| 1 | Read Phase 3 baseline | Locate passed shell scripts, configuration, checkpoint, mock input |
+| 2 | NSys environment check | Run `check_nsys_env.py` to verify NSight Systems availability |
+| 3 | NSys capture + analysis | Run `veloq_quick_scan.sh` or `nsys_official_stats.sh` to capture and analyze trace |
+| 4 | Profiling handoff | Classify bottleneck, produce profiling report for Stage B consumption |
+| 5 | Context discovery | Run `discover_context.py` to scan configs, logs, framework parameters |
+| 6 | Build candidate table | Create optimization candidate table with expected gain, risk, mechanism |
+| 7 | Short-smoke validation | Run short-smoke validation for top-priority candidate |
+| 8 | Medium/full validation (optional) | Escalate to medium or full validation when short smoke passes |
+| 9 | Loss gate comparison | Run `compare_loss_gate.py` to compare loss/grad against baseline |
+| 10 | Four-gate judgment | Evaluate performance, numerical, memory/stability, and scope gates |
+| 11 | Write optimization report | Aggregate profiling + optimization results into report |
+| 12 | Final status | Determine overall phase status `passed` / `human_needed` |
 
 **Step Completion Protocol**:
-- Each step completed → output `✓ Step N — <one-sentence result>`, then proceed to the next step
-- Each switch completed → output `✓ Feature [<name>] — PASS` or `✗ Feature [<name>] — <root cause>`
-- Each step failed → output `✗ Step N — <root cause>`, enter the retry or HUMAN_NEEDED flow for that step
-- Each step skipped → output `⊘ Step N — <skip reason>`, then proceed to the next step
+- Each step completed -> output `* Step N -- <one-sentence result>`, then proceed to the next step
+- Each step failed -> output `X Step N -- <root cause>`, enter the retry or HUMAN_NEEDED flow for that step
+- Each step skipped -> output `- Step N -- <skip reason>`, then proceed to the next step
 - **It is forbidden to proceed to the next step without outputting a marker**
 
 ---
 
 ## Execution Steps
 
-### Step 1 — Read Phase 3 baseline
+### Step 1 -- Read Phase 3 baseline
 
 Read `phase3_output.artifacts.verify_report_path` and confirm the following fields are recoverable:
 - `run_config.hf_path` (from `phase0_output.source.hf_ckpt_path`)
 - `run_config.mcore_ckpt` (from `phase2_output.artifacts.output_ckpt`)
-- `run_config.convert_yaml` (resolved from `phase2_output.artifacts.generated_files`)
-- `run_config.reference_type` (from `phase3_output.model.reference_type`)
-- `run_config.reference_framework` (from `phase3_output.model.reference_framework`)
-- Phase 3 passed mock input, Omni training script, reference-side script, threshold configuration
+- Phase 3 passed baseline script, mock input, thresholds
 
-If `phase3_output.artifacts` does not contain enough to recover:
-1. Look for Phase 3 actual run scripts from `phase3_output.artifacts.verify_report_path` and `run_dir/phases/phase3/`.
-2. Recover `run_real_weight_script`, `mock_input_path`, checkpoint path (`phase2_output.artifacts.output_ckpt`), and thresholds from the report.
-3. If reproducible commands cannot be recovered, transition to `human_needed`.
+If `phase3_output.artifacts` does not contain enough to recover, transition to `human_needed`.
 
-### Step 2 — Build feature matrix
+### Step 2 -- NSys environment check
 
-Steps 2-7 together form the authoritative `feature-compat` validator. Phase 4 can pass only when the latest `feature-compat` result passes.
-
-Generate `run_dir/phases/phase4/feature_matrix.yaml` based on `phase0_output.model.model_type`, `model_spec.yaml`, Phase 3 baseline script, existing YAML configuration, and Omni capability support.
-
-Phase 4 must reuse Phase 3 scripts directly: for each switch, copy the Phase 3 baseline script to `run_dir/phases/phase4/<switch>/run.sh`, then append or override only the switch under test. Do not synthesize a new training command and do not change unrelated baseline parameters, mock input, checkpoint, or thresholds.
-
-Each switch must include:
-- `name`: Switch name
-- `category`: `parallel_strategy` | `data_capability` | `feature`
-- `source_doc`: source document path when the switch comes from `docs/source/features/`; `phase4_builtin` for TP/EP/PP/VPP/SFT Packing
-- `applies_to`: model types / structures where the switch is applicable: `llm`, `vlm`, `diffusion`, `moe`, `dense`, `vision_encoder`, `language_model`, `all`
-- `activation_type`: `script_args` | `script_env` | `copied_yaml` | `script_args+copied_yaml` | `not_phase4_runtime`
-- `parameters_to_add`: exact CLI arguments appended to the copied Phase 3 script
-- `parameters_to_override`: exact CLI arguments or YAML keys replaced in the copied Phase 3 script/config
-- `yaml_overrides`: underscore-form YAML keys when the switch is configured in the copied YAML
-- `env_to_set`: environment variables inserted before the copied Phase 3 command; empty when not required
-- `baseline_script`: Baseline script copied from Phase 3
-- `test_script`: Test script path after enabling the switch
-- `dependencies`: Prerequisites
-- `mutually_exclusive`: Mutually exclusive switches
-- `retry_limit`: Retry limit (default 5)
-- `expected_status`: `supported` / `unsupported` / `human_confirm`
-- `support_status`: `supported|unsupported|human_needed|skipped`
-- `support_evidence`: command path, log path, source doc path, loss/grad metrics, or skip reason
-- `preflight_status`: `passed|skipped|human_needed|failed`
-- `preflight_checks`: concrete feasibility checks evaluated before execution
-- `preflight_skip_reason`: null when preflight passes, otherwise the exact reason execution was skipped or escalated
-
-Phase 4 switch selection and execution is table-driven:
-1. Read structure tags for feature matrix evaluation. **PRIMARY source**: `phase0_output.artifacts.hf_analysis_path` (hf_analysis.yaml). **SECONDARY source**: `phase0_output.artifacts.bridge_mapping_path` (bridge_mapping.yaml). **Legacy fallback**: `phase0_output.model.model_type` + `model_spec.yaml` (used only when hf_analysis_path is absent).
-
-Structure tag derivation from hf_analysis:
-- `is_llm`: `hf_analysis.model_category == "llm"`
-- `is_vlm`: `hf_analysis.model_category == "vlm"`
-- `is_diffusion`: `hf_analysis.model_category == "diffusion"`
-- `is_moe`: `hf_analysis.components` contains an entry with key `moe_gate` or `moe_layer`, OR any component has `structural_tags` containing `moe`
-- `is_dense`: NOT is_moe AND (is_llm OR is_vlm)
-- `has_vision_encoder`: `hf_analysis.components` contains an entry with key `vision_encoder` or `image_encoder`, OR any component has `structural_tags` containing `vision_encoder` or `vit`
-- `has_language_ce_loss`: is_llm OR (is_vlm AND `hf_analysis.components` contains `language_model`)
-- `has_sft_data`: determined from run_inputs or baseline config (not from hf_analysis)
-- `has_visual_mock_input`: determined from Phase 3 baseline artifacts (not from hf_analysis)
-
-Cross-reference from bridge_mapping: When bridge_mapping_path is present, verify that component types derived from hf_analysis are consistent with bridge_mapping.component_bridge entries. For each component_bridge entry, the `hf` field should correspond to a key in hf_analysis.components. If a component appears in bridge_mapping but not in hf_analysis, log a warning but do not fail.
-
-These derived tags are used to evaluate the `applies_to` field in each feature_matrix.yaml row. The evaluation logic is unchanged: OR semantics (any listed tag true = applicable), AND semantics for dependencies, mutually exclusive checking.
-
-Step 2 sub-item 2 (GPU count and parallelism metadata) remains unchanged -- it still reads from `model_spec.yaml` or the copied YAML config for num_layers, num_query_groups, etc. These are runtime configuration values not available in hf_analysis.
-2. Detect available GPU count via `nvidia-smi -L | wc -l` or equivalent; derive `num_layers`, `num_query_groups`, and relevant parallelism metadata from `model_spec.yaml` or the copied YAML config. Use these to pre-filter parallel-strategy rows before execution: skip TP/PP/VPP when `available_gpus < required_world_size`, skip PP when `num_layers < pipeline_model_parallel_size * 2`.
-3. Start from `references/phases/phase4/feature_matrix.yaml`; do not invent extra switches during execution.
-4. For each row, evaluate `applies_to` as OR semantics: the row is applicable when any listed tag is true, or when it contains `all`. Then evaluate `dependencies` as AND semantics: every dependency must be satisfied before execution. If any `mutually_exclusive` switch has already been selected for the same run, skip the row and record the conflict.
-5. Run row-specific preflight before creating a runnable script:
-   - TP: if the model uses grouped/shared-query attention, confirm `num_query_groups % tensor_model_parallel_size == 0` unless a model-specific TP replication strategy is documented in `model_spec.yaml` or the family source YAML. If not feasible, record `preflight_status=human_needed` or `skipped` with the exact `num_query_groups` and TP value instead of launching an invalid config.
-   - PP: confirm `num_layers` can form non-empty pipeline stages for the chosen `pipeline_model_parallel_size`; record layer count and stage layout evidence.
-   - VPP: confirm the PP layout is valid first, then confirm `num_virtual_stages_per_pipeline_rank` can form valid virtual stages; record the virtual-stage calculation.
-   - FP8 rows: confirm native FP8-capable hardware, TransformerEngine FP8 availability, and a resource suitability note before launch. Missing hardware/library is recorded as `skipped` or `human_needed` according to matrix semantics, not as an unexplained runtime failure.
-6. If not applicable or pre-filtered by GPU/layer/config feasibility, create a `result.json` with `status=skipped` or `human_needed`, `support_status` matching the outcome, `preflight_status`, `preflight_checks`, and a concrete `preflight_skip_reason`.
-7. If applicable and `activation_type != not_phase4_runtime`, copy the Phase 3 script to the row's `test_script`, then apply only the row's `parameters_to_add`, `parameters_to_override`, `yaml_overrides`, and `env_to_set`.
-8. If applicable but required resources or fixtures are missing, mark `support_status=human_needed` and keep the reproduction command / missing fixture in `support_evidence`.
-9. If `activation_type=not_phase4_runtime`, do not run loss-diff; record `human_confirm` or `skipped` with the source document and reason.
-
-Parameter editing rules:
-- Prefer CLI override in the copied `run.sh` when the baseline script already uses CLI flags.
-- If the row has `copied_yaml` or `script_args+copied_yaml`, copy the YAML referenced by `--config-file` into the switch directory, apply only the row's `yaml_overrides`, and update only the copied `run.sh` to reference the copied YAML.
-- When enabling TP/EP/PP/VPP, adjust only the copied script's distributed launcher size (`torchrun --nproc_per_node`, `NNODES`, or equivalent variables) so `world_size >= tensor_model_parallel_size * pipeline_model_parallel_size * expert_model_parallel_size`; do not alter data, checkpoint, mock input, or thresholds.
-- If a baseline script already sets the same argument, replace that argument in the copied script instead of appending a duplicate.
-- If the baseline contains a negating flag for the tested feature, remove only that negating flag from the copied script and record it in `parameters_to_override`.
-
-Fixed Phase 4 switch matrix is maintained in:
-
-```text
-references/phases/phase4/feature_matrix.yaml
+```bash
+python "$NSYS_SKILL_DIR/scripts/check_nsys_env.py"
 ```
 
-Read that file in full before Step 3. It contains the fixed matrix rows, source documents, applies-to tags, activation types, parameters/YAML/env changes, dependencies, skip rules, and verification methods. Do not invent extra switches during execution.
+Verify NSight Systems CLI is available, GPU is accessible, and nsys can be invoked. If environment check fails, transition to `human_needed: NSys environment not available for profiling`.
 
-The feature group must include every row in the fixed matrix. Rows may be `passed`, `skipped`, `human_needed`, or `human_confirm`, but they must not be silently omitted.
+### Step 3 -- NSys capture + analysis
 
-### Step 3 — Execute Single Switch Verification
+Run a VeloQ quick scan for fast triage, then official `nsys stats` for report-grade analysis:
 
-For each row in `feature_matrix.yaml`:
+```bash
+# VeloQ quick scan
+bash "$NSYS_SKILL_DIR/scripts/veloq_quick_scan.sh" --trace-output phases/phase4/nsys/trace.nsys-rep
 
-1. If the row was filtered out by `applies_to`, create `run_dir/phases/phase4/<switch>/result.json` with `status=skipped`, `support_status=skipped`, source row, and skip reason; do not create a runnable script.
-2. If `activation_type=not_phase4_runtime`, create `result.json` with `status=skipped` or `status=human_confirm`, record source doc and the non-runtime verification path; do not modify the Phase 3 script.
-3. Otherwise copy the Phase 3 baseline script to `run_dir/phases/phase4/<switch>/run.sh`.
-4. Apply only the row's declared `parameters_to_add`, `parameters_to_override`, `yaml_overrides`, and `env_to_set`; if these fields are empty for an applicable runtime row, set `support_status=human_needed` instead of guessing parameters.
-5. Record the exact final command line and copied YAML diff in that switch's `result.json` before execution.
-6. Run loss-diff using the same mock input, checkpoint, reference implementation, and thresholds as Phase 3; optimizer features must additionally run one optimizer step because their documented behavior is not verified by forward-only loss.
-7. Write the final result to `run_dir/phases/phase4/<switch>/result.json`.
+# Official stats (when needed for deeper analysis)
+bash "$NSYS_SKILL_DIR/scripts/nsys_official_stats.sh" --trace phases/phase4/nsys/trace.nsys-rep --output phases/phase4/nsys/stats
+```
+
+All NSys artifacts are stored under `phases/phase4/nsys/`.
+
+### Step 4 -- Profiling handoff
+
+Classify the primary bottleneck from the NSys analysis results:
+- `compute_bound`: GPU compute kernels dominate step time
+- `communication_bound`: NCCL/AllGather/ReduceScatter dominates
+- `host_sync_bound`: CPU-side synchronization or dataloader stalls
+- `data_copy_bound`: memcpy/D2H/H2D transfers dominate
+- `mixed`: Multiple bottlenecks with similar magnitude
+
+Record the bottleneck class, primary bottleneck, confidence level, and nsys_summary_path in the output. If NVTX instrumentation is missing or insufficient, record an `nvtx_instrumentation_plan`.
+
+### Step 5 -- Context discovery
+
+```bash
+python "$TUNER_SKILL_DIR/scripts/discover_context.py" \
+  --run-root phases/phase4 \
+  --baseline-script phases/phase3/run_real_weight.sh
+```
+
+Scan available configs, logs, framework parameters, and performance switches. Record discovered evidence, source paths, and missing access.
+
+### Step 6 -- Build candidate table
+
+Build an optimization candidate table with columns:
+- Candidate name
+- Bottleneck addressed
+- Expected gain (estimated)
+- Mechanism hypothesis
+- Loss risk (low/medium/high)
+- Memory risk (low/medium/high)
+- Engineering cost
+- Attempt/time budget
+- Stop condition
+
+Prioritize high-evidence, high-gain, low-risk candidates first. Treat memory-constrained and numerically sensitive changes as opt-in until proven otherwise.
+
+### Step 7 -- Short-smoke validation
+
+Run short-smoke validation for the top-priority candidate:
+- Same model, data, batch, precision, ranks/devices as Phase 3 baseline
+- Short step window (5-10 iterations)
+- Record throughput, loss, gradient norms, memory usage
 
 Judgment:
-- PASS: Phase 3 loss-diff thresholds for that feature pass; record `status=passed`, `support_status=supported`.
-- FAILED: Runtime failure or numerical threshold exceeded; proceed to Step 5 diagnosis.
-- SKIPPED: Model structure not applicable or feature matrix marks as unsupported; record `status=skipped`, `support_status=skipped` or `unsupported`, and the reason.
-- HUMAN_NEEDED: enablement method is unclear, environment capability is unknown, missing fixtures/resources cannot be supplied, or diagnosis reaches retry limit; record `support_status=human_needed`.
+- PASS: Performance improvement observed, loss/grad within tolerance, memory stable
+- DIAGNOSTIC: Needs deeper analysis (loss drift, memory growth)
+- INCONCLUSIVE: Short window too brief for reliable judgment
+- FAIL: Runtime error or clear regression
 
-### Step 4 — Execute Combined Switch Verification
+### Step 8 -- Medium/full validation (optional)
 
-Execute combined verification only after all relevant single switches have passed.
+Escalate to medium-window or full validation only after short smoke passes and user approves:
+- Medium: longer step window (50-200 iterations)
+- Full: complete training run or extended validation window
 
-Combination strategy:
-- Only combine switches that are explicitly present in the fixed matrix and whose single-switch verification has passed.
-- First test parallelism-related combinations: TP + PP, TP + VPP, and MoE + EP when applicable.
-- Then test feature/runtime combinations declared by dependencies: FP8 + optimizer feature, FP8 + MoE A2A overlap, MoE A2A overlap + MoE selective recompute/offload.
-- Do not create combinations involving switches that are not matrix rows. For combinations declared as mutually exclusive in `mutually_exclusive`, skip directly and record `skipped_reason`.
+Each escalation requires explicit user approval unless covered by an approved auto-loop envelope.
 
-Combined verification still reuses Phase 3 loss-diff criteria; results are written to `run_dir/phases/phase4/combinations/<combo>/result.json`.
+### Step 9 -- Loss gate comparison
 
-### Step 5 — Failure Diagnosis and Retry
+```bash
+python "$TUNER_SKILL_DIR/scripts/compare_loss_gate.py" \
+  --baseline phases/phase3/verify_report.json \
+  --candidate phases/phase4/<candidate>/loss_metrics.json \
+  --tolerance 1e-3
+```
 
-When a single switch fails, locate the root cause in the following order:
+Compare candidate loss/grad against Phase 3 baseline. Record mean relative percentage, max absolute relative percentage, and verdict.
 
-1. **Environment / Resource issue**: OOM, NCCL timeout, GPU fault, missing environment variable → first consult `knowledge_base/qrh/gpu_resource_adjustment.md` or `knowledge_base/qrh/environment_setup.md` then retry.
-2. **Configuration issue**: Missing YAML field, CLI argument conflict, invalid parallelism → only modify that switch's test script or temporary configuration.
-3. **Model code issue**: `_layer_spec.py` / `_model.py` not integrated with the interface required by the feature → do not patch model code inside Phase 4; return `human_needed` with `fallback_phase="phase1"`, failed switch evidence, reproduction command, and logs.
-4. **Weight conversion issue**: Enabling the switch requires additional weight key or shape mapping → do not patch conversion artifacts inside Phase 4; return `human_needed` with `fallback_phase="phase2"`, failed switch evidence, reproduction command, and logs.
-5. **Phase 3 baseline invalidation**: baseline script, checkpoint, mock input, or reference-mode thresholds are stale or unrecoverable → return `human_needed` with `fallback_phase="phase3"`.
-6. **Operator missing or semantically unsupported**: Omni currently has no corresponding implementation, or the model structure is inherently incompatible → mark that switch as `HUMAN_NEEDED` with `fallback_phase=null`.
+### Step 10 -- Four-gate judgment
 
-Each switch retries up to `retry_limit` times. After reaching the limit, record `HUMAN_NEEDED` and continue to the next switch.
+Evaluate all four gates:
 
-### Step 6 — Write feature_compat_report.json
+1. **performance_gate**: Throughput/step-time improvement meets threshold (metric, threshold, result)
+2. **numerical_gate**: Loss/grad comparison within tolerance (comparison_mode, tolerance, result)
+3. **memory_stability_gate**: No OOM, no memory leak, stable across steps (result)
+4. **scope_gate**: Change stays within approved scope, no unintended side effects (result)
 
-Write all results to `run_dir/phases/phase4/feature_compat_report.json`.
+All four gates must pass for a candidate to be accepted. If any gate fails, record which gate failed and the evidence.
+
+### Step 11 -- Write optimization report
+
+Write all results to `run_dir/phases/phase4/optimization_report.json`.
 
 The report must include:
-- Baseline source: Phase 3 `verify_report.json`, script paths, thresholds
-- Feature matrix path
-- Per single switch result: category, status, support_status, preflight_status, preflight_checks, preflight_skip_reason, command, log, loss / backward metrics, failure reason
-- Per combination result: status, support_status, command, log, loss / backward metrics, failure reason
-- Retry records: temporary script/config changes, verification commands, and whether fallback to Phase 1 / Phase 2 / Phase 3 is required
-- `HUMAN_NEEDED` list: reason, reproduction command, suggested next step, `failure_gate`, and `fallback_phase`
-- `validator`: `feature-compat` status, attempt, metrics, commands, logs, artifacts, diagnosis, and `fallback_phase`
+- Baseline source: Phase 3 verify_report.json, script paths, thresholds
+- Profiling section: bottleneck class, primary bottleneck, confidence, nsys_summary_path
+- Optimization section: candidate table, best recipe, loss gate comparison
+- Gate results: all four gate judgments with evidence
+- Human-needed items: failed gates, reproduction commands, fallback phases
 
-### Step 7 — Determine result
+### Step 12 -- Final status
 
 Overall status determination:
-- All applicable runtime switches and necessary combinations pass, and non-runtime rows are recorded as `skipped` or `human_confirm` with evidence → final `passed`
-- Any applicable runtime switch reaches `HUMAN_NEEDED`, or Phase 3 baseline is not recoverable → final `human_needed`
-- Runtime/environment/configuration failure that remains retryable after the current attempt is recorded as attempt/validator `failed`, repaired locally, and rerun; it is not a final Phase 4 status.
+- At least one candidate passes all four gates -> final `passed`, record `best_recipe`
+- No actionable bottleneck found and scope gate confirms no optimization needed -> final `passed`, `best_recipe: null`
+- All candidates fail, or NSys environment unavailable, or max attempts reached -> final `human_needed`
 
-Phase 4 top-level `passed` is prohibited unless `validator.name == "feature-compat"` and `validator.status == "passed"` in the latest iteration. Phase 4 final output status is only `passed` or `human_needed`; `failed` is reserved for switch/validator attempt records while retries are still available.
+Phase 4 top-level `passed` is prohibited unless `validator.name == "performance-tuning"` and `validator.status == "passed"` in the latest iteration. Phase 4 final output status is only `passed` or `human_needed`; `failed` is reserved for candidate/validator attempt records while retries are still available.
+
+---
+
+## Human Checkpoints
+
+Phase 4 has the following mandatory human checkpoint points:
+
+1. **NSys capture**: Before running NSys profiling on the training workload, confirm with user that the workload is ready for profiling and the capture scope is appropriate.
+2. **Medium/full validation escalation**: Before escalating from short-smoke to medium or full validation, request user approval (unless covered by auto-loop envelope).
+3. **Auto-loop envelope changes**: Any change to the approved auto-loop envelope (new edit paths, commands, gates, or budgets) requires explicit user approval.
+4. **Environment modifications**: Any change to the training environment (new dependencies, system-level settings) requires explicit user approval.
 
 ---
 
@@ -334,27 +325,26 @@ Write `phase4_output.yml` to `run_dir/phases/phase4_output.yml`.
 references/phases/phase4/phase4_output_schema.yaml
 ```
 
-The schema covers step-gate evidence, Phase 3 baseline source metadata, generated feature compatibility artifacts, single-switch results, combination results, human-needed reproductions, checks, and the authoritative `feature-compat` validator result. Final `phase.status` remains `status: passed | human_needed`; `failed` is only a per-switch or validator retry signal.
-
 When Phase 0 v2 output (three-document) is available, the output MUST include:
 - `source.hf_analysis_path`: `<phase0_output.artifacts.hf_analysis_path>` (present when Phase 0 v2 output exists)
 - `source.bridge_mapping_path`: `<phase0_output.artifacts.bridge_mapping_path>` (present when Phase 0 v2 output exists)
 - `checks.bridge_mapping_consumed`: `true` (when bridge_mapping was read and used; absent for legacy runs)
 
-When `hf_analysis_path` or `bridge_mapping_path` is absent (legacy runs), these fields are omitted from the output. The validator skips corresponding checks.
-
 ---
 
 ## Error Handling
 
-| Situation | Status | Blocks Subsequent Switches | Notes |
-|------|--------|----------------|------|
-| Phase 3 not completed or not passed | `human_needed` | Yes | Return `validator.status="human_needed"`, `failure_gate="phase3_prerequisite"`, evidence/artifacts/logs, and `fallback_phase="phase3"` |
-| Phase 3 passed scripts not recoverable | `human_needed` | Yes | Return `failure_gate="phase3_baseline_unrecoverable"`, evidence/artifacts/logs, and `fallback_phase="phase3"` |
-| Single switch runtime failure exceeds retry limit | That switch `human_needed` | No | Record reproduction command, logs, `failure_gate`, `fallback_phase=null`, and continue other switches |
-| Single switch loss / backward exceeds threshold | That switch `human_needed` | No | Auto-produce diff diagnosis, record logs/artifacts, and continue other switches unless root cause requires fallback |
-| Combined switches mutually exclusive | That combo `skipped` | No | Must record mutually exclusive reason |
-| Model code issue | `human_needed` | Yes | Return switch evidence and `fallback_phase="phase1"`; do not patch Phase 1 code inside Phase 4 |
-| Conversion/checkpoint issue | `human_needed` | Yes | Return switch evidence and `fallback_phase="phase2"`; do not patch conversion artifacts inside Phase 4 |
-| GPU job OOM / GPU fault / NCCL timeout | `failed` then retry | No | First adjust resources per QRH; after reaching retry limit, mark that switch `human_needed` with `fallback_phase=null` |
-| `ModuleNotFoundError` / missing environment variable | `failed` then retry | No | First fix PYTHONPATH / environment variable per QRH |
+| Situation | Status | Blocks Optimization | Notes |
+|------|--------|---------------------|-------|
+| Phase 3 not completed or not passed | `human_needed` | Yes | Return `fallback_phase="phase3"`, evidence/artifacts/logs |
+| Phase 3 passed scripts not recoverable | `human_needed` | Yes | Return `fallback_phase="phase3"`, evidence/artifacts/logs |
+| NSys environment not available | `human_needed` | Yes | Return `fallback_phase=null`, record environment check output |
+| NSys capture fails irrecoverably | `human_needed` | Yes | Return `fallback_phase=null`, record capture error |
+| Profiling inconclusive | `human_needed` | Depends | May proceed with no-candidate `passed` if scope gate allows |
+| Candidate runtime failure exceeds retry limit | That candidate `human_needed` | No | Record reproduction command, logs, continue to next candidate |
+| Loss/grad exceeds tolerance | That candidate `human_needed` | No | Record loss gate comparison, continue to next candidate |
+| Model code issue | `human_needed` | Yes | Return `fallback_phase="phase1"`; do not patch Phase 1 code inside Phase 4 |
+| Conversion/checkpoint issue | `human_needed` | Yes | Return `fallback_phase="phase2"`; do not patch conversion artifacts inside Phase 4 |
+| GPU job OOM / GPU fault / NCCL timeout | `failed` then retry | No | Adjust resources; after reaching retry limit, mark `human_needed` with `fallback_phase=null` |
+| Memory stability violation | That candidate `human_needed` | No | Record memory trace, continue to next candidate |
+| Scope gate violation | That candidate `human_needed` | No | Record scope violation, continue to next candidate |

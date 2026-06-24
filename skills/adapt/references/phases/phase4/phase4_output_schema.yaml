@@ -1,5 +1,5 @@
 # Schema template for phases/phase4_output.yml.
-# Phase 4 fills this after feature matrix compatibility validation.
+# Phase 4 fills this after performance tuning (profiling + optimization) validation.
 #
 # v2 additions: source.hf_analysis_path, source.bridge_mapping_path, checks.bridge_mapping_consumed
 # These fields are present only when Phase 0 v2 output (three-document) is available.
@@ -7,7 +7,7 @@
 
 phase: 4
 status: passed | human_needed
-summary: "Feature Compatibility Test: PASS/HUMAN_NEEDED, single switches passed X/Y, combinations passed M/N"
+summary: "Performance Tuning: profiling <bottleneck_class>, optimization <passed|none|human_needed>, best_recipe <name|null>"
 attempt: 1
 
 step_gate:
@@ -18,27 +18,45 @@ steps:
     evidence: "Phase 3 baseline loaded"
   step2:
     status: passed
-    evidence: "feature_matrix.yaml"
+    evidence: "NSys environment check passed"
   step3:
     status: passed
-    evidence: "single switch verification report"
+    evidence: "NSys capture + analysis complete"
   step4:
     status: passed
-    evidence: "combined switch verification report"
+    evidence: "Profiling handoff: bottleneck classified"
   step5:
     status: passed
-    evidence: "failure diagnosis/retry summary or no-failure note"
+    evidence: "Context discovery complete"
   step6:
     status: passed
-    evidence: "feature_compat_report.json"
+    evidence: "Candidate table built"
   step7:
     status: passed
-    evidence: "final feature-compat decision"
+    evidence: "Short-smoke validation result"
+  step8:
+    status: passed | skipped
+    evidence: "Medium/full validation result or skipped"
+  step9:
+    status: passed
+    evidence: "Loss gate comparison result"
+  step10:
+    status: passed
+    evidence: "Four-gate judgment complete"
+  step11:
+    status: passed
+    evidence: "Optimization report written"
+  step12:
+    status: passed
+    evidence: "Final performance-tuning decision"
 
 source:
+  baseline_verify_report: "<phase3_output.artifacts.verify_report_path>"
+  baseline_run_script: "<phase3_output.artifacts.run_real_weight_script>"
   hf_ckpt_path: "<phase0_output.source.hf_ckpt_path>"
   mcore_ckpt: "<phase2_output.artifacts.output_ckpt>"
-  baseline_verify_report: "<phase3_output.artifacts.verify_report_path>"
+  nsys_skill_dir: "<NSYS_SKILL_DIR>"
+  tuner_skill_dir: "<TUNER_SKILL_DIR>"
   hf_analysis_path: "<phase0_output.artifacts.hf_analysis_path>"     # NEW (v2) -- present when Phase 0 v2 output exists
   bridge_mapping_path: "<phase0_output.artifacts.bridge_mapping_path>"  # NEW (v2) -- present when Phase 0 v2 output exists
 
@@ -47,51 +65,70 @@ model:
   type: "<phase0_output.model.model_type>"
   family: "<phase0_output.model.candidate_family>"
 
-artifacts:
-  feature_compat_report_path: "<run_dir>/phases/phase4/feature_compat_report.json"
-  feature_matrix_path: "<run_dir>/phases/phase4/feature_matrix.yaml"
-  switch_scripts_dir: "<run_dir>/phases/phase4/"
+profiling:
+  bottleneck_class: compute_bound | communication_bound | host_sync_bound | data_copy_bound | mixed
+  primary_bottleneck: str
+  confidence: high | medium | low
+  nsys_summary_path: str
+  nvtx_instrumentation_plan: str | null
+
+optimization:
+  report_path: "<run_dir>/phases/phase4/optimization_report.json"
+  candidate_table:
+    - name: str
+      bottleneck_addressed: str
+      expected_gain: str
+      loss_risk: low | medium | high
+      memory_risk: low | medium | high
+      status: accepted | rejected | pending | diagnostic
+  best_recipe: str | null
+  loss_gate_comparison:
+    verdict: passed | failed
+    mean_rel_pct: float
+    max_abs_rel_pct: float
+
+acceptance_gates:
+  performance_gate:
+    metric: str
+    threshold: str
+    result: passed | failed
+  numerical_gate:
+    comparison_mode: str
+    tolerance: str
+    result: passed | failed
+  memory_stability_gate:
+    result: passed | failed
+  scope_gate:
+    result: passed | failed
 
 checks:
-  applicable_runtime_passed: true
-  non_runtime_rows_justified: true
-  required_combinations_passed: true
+  profiling_evidence_present: true
+  bottleneck_diagnosis_present: true
+  candidate_table_present: true
+  at_least_one_candidate_validated: true
+  all_four_gates_judged: true
   bridge_mapping_consumed: true   # NEW (v2) -- true when bridge_mapping.yaml was read; absent for legacy runs
 
-single_switches:
-  - category: parallel_strategy
-    switch: TP
-    status: passed | failed | skipped | human_needed
-    support_status: supported | unsupported | skipped | human_needed
-    preflight_status: passed | skipped | human_needed | failed
-    preflight_checks: []
-    preflight_skip_reason: null | "<preflight skip/escalation reason>"
-    script: "<run_dir>/phases/phase4/tp/run.sh"
-    reason: null | "<skip/failure reason>"
-
-combinations:
-  - combo: "TP+PP"
-    status: passed | failed | skipped
-    script: "<run_dir>/phases/phase4/combinations/tp_pp/run.sh"
-
 human_needed:
-  - switch: "<name>"
+  - gate: "<gate_name>"
     reason: "..."
     failure_gate: "<gate>"
     fallback_phase: null | "phase1" | "phase2" | "phase3"
-    reproduce: "bash <run_dir>/phases/phase4/<switch>/run.sh"
+    reproduce: "bash <run_dir>/phases/phase4/<candidate>/run.sh"
 
 validator:
-  name: feature-compat
+  name: performance-tuning
   status: passed
   attempt: 1
   failure_gate: null
   metrics:
-    applicable_runtime_passed: true
-    non_runtime_rows_justified: true
-    required_combinations_passed: true
+    profiling_evidence_present: true
+    bottleneck_diagnosis_present: true
+    candidate_table_present: true
+    at_least_one_candidate_validated: true
+    all_four_gates_judged: true
   artifacts:
-    - "<run_dir>/phases/phase4/feature_compat_report.json"
-    - "<run_dir>/phases/phase4/feature_matrix.yaml"
+    - "<run_dir>/phases/phase4/optimization_report.json"
+    - "<run_dir>/phases/phase4/nsys/"
   diagnosis: null
   fallback_phase: null
