@@ -10,9 +10,9 @@ Exports:
   make_attempt_row -- build a LOG-01 attempts.jsonl row with event_id hash
 
 Constants:
-  FLAKE_RERUN_PHASES -- {3, 4}
+  FLAKE_RERUN_PHASES -- {3, 5}
   DEFAULT_FLAKE_RERUN_COUNT -- 3
-  PHASE_VALIDATORS -- {1: "phase1-verify", 2: "phase2-conversion", ...}
+  PHASE_VALIDATORS -- {1: "phase1-verify", 2: "phase2-conversion", 3: "loss-diff", 4: "performance-tuning", 5: "feature-compat", 6: "kb-consistency"}
 """
 from __future__ import annotations
 
@@ -32,14 +32,15 @@ from skills.adapt.lib.gh_client import GhClient
 # Constants
 # ---------------------------------------------------------------------------
 
-FLAKE_RERUN_PHASES: set[int] = {3, 4}
+FLAKE_RERUN_PHASES: set[int] = {3, 5}
 DEFAULT_FLAKE_RERUN_COUNT: int = 3
 PHASE_VALIDATORS: dict[int, str] = {
     1: "phase1-verify",
     2: "phase2-conversion",
     3: "loss-diff",
-    4: "feature-compat",
-    5: "kb-consistency",
+    4: "performance-tuning",
+    5: "feature-compat",
+    6: "kb-consistency",
 }
 
 
@@ -166,7 +167,7 @@ def should_rerun_for_flake(result: ValidatorResult, phase: int) -> bool:
     """Decide whether to rerun validator for near-threshold flake (VAL-03).
 
     Returns True iff:
-      - phase is in FLAKE_RERUN_PHASES ({3, 4})
+      - phase is in FLAKE_RERUN_PHASES ({3, 5})
       - result.status == "failed"
       - result.failure_signature is not None
       - failure_signature.kind in ("numerical_mismatch", "threshold_exceeded")

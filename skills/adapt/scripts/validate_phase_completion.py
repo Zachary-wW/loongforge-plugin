@@ -161,8 +161,9 @@ def validate_phase_output(run_dir: Path, phase: int) -> None:
         1: "phase1-verify",
         2: "phase2-conversion",
         3: "loss-diff",
-        4: "feature-compat",
-        5: "kb-consistency",
+        4: "performance-tuning",
+        5: "feature-compat",
+        6: "kb-consistency",
     }
     expected_name = expected_validators[phase]
     validator = data.get("validator") or _nested(data, "details", "validator")
@@ -308,6 +309,60 @@ def validate_phase_output(run_dir: Path, phase: int) -> None:
     if phase == 4:
         checks = data.get("checks", {})
 
+        # Profiling evidence check
+        profiling_evidence = checks.get("profiling_evidence_present")
+        if profiling_evidence is not None:
+            _expect(profiling_evidence is True,
+                    "checks.profiling_evidence_present must be true when profiling was performed")
+
+        # Bottleneck diagnosis check
+        bottleneck_diagnosis = checks.get("bottleneck_diagnosis_present")
+        if bottleneck_diagnosis is not None:
+            _expect(bottleneck_diagnosis is True,
+                    "checks.bottleneck_diagnosis_present must be true when profiling was performed")
+
+        # Candidate table check
+        candidate_table = checks.get("candidate_table_present")
+        if candidate_table is not None:
+            _expect(candidate_table is True,
+                    "checks.candidate_table_present must be true when optimization was performed")
+
+        # At least one candidate validated
+        candidate_validated = checks.get("at_least_one_candidate_validated")
+        if candidate_validated is not None:
+            _expect(candidate_validated is True,
+                    "checks.at_least_one_candidate_validated must be true when optimization was performed")
+
+        # All four gates judged
+        all_gates = checks.get("all_four_gates_judged")
+        if all_gates is not None:
+            _expect(all_gates is True,
+                    "checks.all_four_gates_judged must be true when optimization was performed")
+
+        # Bridge mapping consumption check (conditional for backward compat)
+        bridge_mapping_consumed = checks.get("bridge_mapping_consumed")
+        if bridge_mapping_consumed is not None:
+            _expect(bridge_mapping_consumed is True,
+                    "checks.bridge_mapping_consumed must be true when bridge_mapping was used as input")
+            # Verify bridge_mapping file exists and has content
+            artifacts = data.get("artifacts", {})
+            bm_path = artifacts.get("bridge_mapping_path")
+            if bm_path is None:
+                bm_path = data.get("source", {}).get("bridge_mapping_path")
+            if bm_path is not None:
+                full_path = run_dir / bm_path
+                if not full_path.exists():
+                    raise ValueError(f"checks.bridge_mapping_consumed is true but bridge_mapping file not found: {full_path}")
+                bm_data = yaml.safe_load(full_path.read_text())
+                if not isinstance(bm_data, dict):
+                    raise ValueError(f"bridge_mapping.yaml is not a valid YAML dict: {full_path}")
+                component_bridge = bm_data.get("component_bridge")
+                _expect(isinstance(component_bridge, list) and len(component_bridge) > 0,
+                        "bridge_mapping.yaml component_bridge must be a non-empty list when bridge_mapping_consumed is true")
+
+    if phase == 5:
+        checks = data.get("checks", {})
+
         # Bridge mapping consumption check (conditional for backward compat)
         bridge_mapping_consumed = checks.get("bridge_mapping_consumed")
         if bridge_mapping_consumed is not None:
@@ -345,7 +400,7 @@ def validate_phase_output(run_dir: Path, phase: int) -> None:
             _expect(isinstance(hfa_data.get("components"), dict) and len(hfa_data["components"]) > 0,
                     "hf_analysis.yaml components must be a non-empty dict")
 
-    if phase == 5:
+    if phase == 6:
         checks = data.get("checks", {})
 
         # Bridge mapping consumption check (conditional for backward compat)
@@ -394,7 +449,7 @@ def validate_phase_output(run_dir: Path, phase: int) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check LoongForge phase completion artifacts")
     parser.add_argument("--run-dir", required=True, help="Adaptation run directory")
-    parser.add_argument("--phase", required=True, type=int, choices=range(6), help="Phase number 0-5")
+    parser.add_argument("--phase", required=True, type=int, choices=range(7), help="Phase number 0-6")
     args = parser.parse_args(argv)
 
     try:
