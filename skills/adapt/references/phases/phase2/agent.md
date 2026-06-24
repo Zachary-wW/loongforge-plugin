@@ -240,6 +240,24 @@ If `sample_keys` are insufficient to determine, read HF source code via `compone
 
 Also read the `omni_reference.convert_yaml_*` fields in `knowledge_base/sources/<model_type>/<candidate_family>.yaml`, and load the candidate's reference convert YAML content into memory (for reference name_map entry patterns).
 
+### Source Discovery Mandates
+
+Before classifying any module, discover the actual naming used in both HF and mcore:
+
+1. **HF prefix discovery**: Read the actual HF checkpoint index file (e.g., `model.safetensors.index.json` at the checkpoint path from `phase0_output.slice.hf_ckpt_path`) to discover the real key prefixes used in the state_dict. Do not assume conventional prefixes like `model.layers.N.self_attn.*` or `model.embed_tokens` — the actual model may use different prefix structures (e.g., `embed`, `attn.`, `transformer.h.N.attn.*`, or other variations). The discovered prefixes determine `name_map.huggingface.transformer`, `name_map.huggingface.layer_prefix`, and all module key stems. If the index file is unavailable, fall back to listing safetensors file metadata.
+
+2. **Mcore module path discovery**: Read the actual LoongForge/Megatron model definition source code (the Python model file produced by Phase 1) to discover the real mcore module attribute hierarchy. Do not assume flattened paths — preserve the full module hierarchy as it appears in the source definition. For example, if the model class defines `self_attention.core_attention.compressor`, the mcore name_map entry must use `self_attention.core_attention.compressor`, not the shortened `self_attention.compressor`. Similarly, if the source defines `self_attention.core_attention.attn_sink`, use that full path, not `self_attention.attention_sink`.
+
+3. **is_direct_name and ignore_tp verification**: Both flags must be verified by reading the actual Megatron/LoongForge source code. An `is_direct_name: true` flag means the common checkpoint key is the literal mcore attribute name (no prefix substitution). An `ignore_tp: true` flag means the parameter is not split during tensor parallelism. Do not guess either flag — confirm from source.
+
+### Naming Authority Rules
+
+`MODULE_FORMATS.md` is the naming authority for semantic keys in `name_map`. When it specifies a key name, that name is mandatory:
+
+- When `MODULE_FORMATS.md` uses `attention.kv_down`, use `attention.kv_down` — do not invent alternatives like `kv_shared`.
+- When `MODULE_FORMATS.md` uses `attention.wo_a` / `attention.wo_b`, use those — do not invent `dense_a` / `dense_b`.
+- If a new module has no existing entry in `MODULE_FORMATS.md`, propose a name following the established pattern and document it in the classification result.
+
 **Classification Result**:
 - All modules match existing formats (Tier 0) -> skip directly to Step 3
 - New parameters but standard layout (Tier 1) -> proceed to Step 2
@@ -264,9 +282,45 @@ Design specifications still come from `knowledge_base/convert_checkpoint/CUSTOM_
 
 Based on Step 1's `module_format_map` + candidate reference YAML (name_map patterns) + `ADAPTATION_GUIDE.md` Step 3 YAML template, generate:
 
-- `args.common`: extract `num_layers / hidden_size / num_attention_heads / num_key_value_heads / ffn_hidden_size` from `weight_structure` or `model_spec.yaml`
+- `args.common`: extract `num_layers / hidden_size / num_attention_heads / num_key_value_heads / ffn_hidden_size` from `weight_structure` or `model_spec.yaml`; include `head_dim` when the model specifies it (via HF config `head_dim` or derived from `hidden_size / num_attention_heads`)
 - `args.mcore`: determined by `module_format_map` (e.g., 1A -> `transpose_query_key_value: true`; 1C -> Gated QKV related config)
-- `name_map.huggingface` / `name_map.mcore`: fill in per the example entries for the corresponding format ID in `MODULE_FORMATS.md`, key naming verified from `sample_keys`
+- `name_map.huggingface` / `name_map.mcore`: fill in per the example entries for the corresponding format ID in `MODULE_FORMATS.md`, key naming verified from `sample_keys` AND actual source discovery (see Step 1 Source Discovery Mandates)
+
+#### name_map Verification Rules
+
+Before finalizing name_map entries, verify each against source and authority:
+
+1. **Semantic key names**: Must match `MODULE_FORMATS.md` exactly. When it specifies `attention.kv_down`, `attention.kv_norm`, `attention.wo_a`, `attention.wo_b`, those names are mandatory — do not invent alternatives (`kv_shared`, `kv_shared_layernorm`, `dense_a`, `dense_b`).
+
+2. **Hyper-Connection (HC) parameters**: Discover the parameter structure from the actual `HyperConnectionModule` source code. The module uses a 5-parameter model per connection type: `fn`, `base`, `alpha_pre`, `alpha_post`, `alpha_res`. In `name_map.huggingface`, use flat `hc_attn_*` / `hc_ffn_*` key naming at the top level (e.g., `hc_attn_fn`, `hc_attn_base`, `hc_attn_alpha_pre`, `hc_attn_alpha_post`, `hc_attn_alpha_res`; similarly `hc_ffn_fn`, `hc_ffn_base`, ...). Do not nest under `attention.hc_*` or `mlp.hc_*`. Mcore paths: `self_attention_hyper_connection.mapping_proj` / `bias` / `alpha_pre` / `alpha_post` / `alpha_res`; and `mlp_hyper_connection.mapping_proj` / `bias` / `alpha_pre` / `alpha_post` / `alpha_res`.
+
+3. **Grouped output projection**: When a model splits its output projection into two components (e.g., for grouped query attention with separate projection groups), use `attention.wo_a` / `attention.wo_b` as the common keys (not `dense_a` / `dense_b`). Mcore mapping: `wo_a -> self_attention.linear_o_group_proj` (with `is_direct_name: true`), `wo_b -> self_attention.linear_proj` (with `extra: true`, `fp8: true`).
+
+4. **KV projection and layernorm**: Use `attention.kv_down` / `attention.kv_norm` (not `kv_shared` / `kv_shared_layernorm`). Mcore mapping: `kv_down -> self_attention.linear_kv_proj`, `kv_norm -> self_attention.kv_layernorm` as a separate extra module — do not use `is_layernorm: true` on the projection entry. For Q-up layernorm, use a separate module entry mapping to `self_attention.q_layernorm`.
+
+5. **MTP mapping**: Follow `MODULE_FORMATS.md` Section 5 strictly. Use `is_direct_name: true` for direct-reference parameters. Verify from HF source whether MTP reuses the main `output_layer` (no separate `mtp_head`). When MTP layers have hyper-connections, mcore paths follow: `transformer_layer.self_attention_hyper_connection.*` / `transformer_layer.mlp_hyper_connection.*`. MTP `layer_id` must be discovered from HF source code.
+
+#### tensor_parallel_dim Generation
+
+If the model introduces parameters not covered by the default TP dimension dictionary, generate the `tensor_parallel_dim` section entries for model-specific parameters. Each entry maps a common semantic key to its column-parallel dimension (e.g., `hc_attn_fn: column`). Do not leave model-specific parameters unregistered — missing TP entries cause incorrect sharding at TP > 1.
+
+#### Common Checkpoint Constant Naming
+
+When adding new constants to `common_checkpoint.py`, follow the existing naming convention:
+
+- `ATTENTION_KV_DOWN` (not `ATTENTION_KV_SHARED`).
+- Hyper-Connection constants: `HC_ATTN_FN` / `HC_ATTN_BASE` / `HC_ATTN_ALPHA_PRE` / `HC_ATTN_ALPHA_POST` / `HC_ATTN_ALPHA_RES` and `HC_FFN_FN` / `HC_FFN_BASE` / `HC_FFN_ALPHA_PRE` / `HC_FFN_ALPHA_POST` / `HC_FFN_ALPHA_RES`.
+- Constant naming must match the common key naming used in `name_map`.
+
+#### Shell Script Conventions
+
+Generated shell scripts must follow LoongForge conventions:
+
+- Filenames: use the model's canonical name, not symmetric FP8 indicators in both script names.
+- HF-to-mcore conversion: use `--convert_to_fp8` flag (not `--amax_epsilon`).
+- Mcore-to-HF conversion: no FP8 flag needed (not `--fp8_force_no_requant`).
+- Dev-scale defaults: `tp=2`, `pp=1`, `ep=2` (when EP is applicable).
+- Config directory paths must match the discovered model naming (e.g., `configs/models/<discovered_family>/`).
 
 Few-shot reference: `knowledge_base/schema/FILE_STRUCTURE.md` (Few-shot reference path -> Convert YAML)
 

@@ -100,6 +100,19 @@ decoder:     pre_norm, residual, dense_first_k=N, moe_layer_freq=N
 
 **Strategy impact**: When `structural_tags` contains `zero_centered`, Phase 1 Step 2 Branch A must upgrade the `norm` component's strategy from `reuse_ref` to `new_impl` (Megatron standard RMSNorm does not support zero-centered initialization).
 
+**Additional extraction rules (model-agnostic):**
+
+| Rule | Identification / Extraction |
+|------|----------------------------|
+| R1 `_keep_in_fp32_modules` | Inspect the `PreTrainedModel` subclass for `_keep_in_fp32_modules`. Record **strict_fp32** list (modules named directly) and **non_strict_fp32** list (modules added conditionally via config fields like `bf16_include` / `fp32_include`). If no conditional expansion, non_strict list is empty. |
+| R2 Novel module sub-enumeration | For each class placed in `novel_modules`, list all `nn.Module` sub-components from `__init__` and key parameters (scaling constants, `register_buffer(persistent=True)` entries) as `sub_modules` and `key_params`. |
+| R3 Novel module count check | After classification, cross-check: `len(novel_modules)` must equal the count of classes not matching any standard component category. Mismatch triggers re-scan. |
+| R4 Compressor-internal state | When a novel module's `forward()` maintains cross-call state (e.g., `overlap_kv`, `overlap_gate`, running-window accumulators, rolling buffers), add `has_internal_state` to `structural_tags` and record variable names + roles. |
+| R5 Compressor causal masking | When a novel module's `forward()` computes `block_bias`, `causal_threshold`, or similar mask-like logic, add `causal_masking` to `structural_tags` and record the computation. |
+| R6 `rope_scaling` sub-fields | When `positional_encoding` `structural_tags` include `yarn` / `ntkscaling` / `linear_scaling`, drill into `config.json` `rope_scaling` sub-dict for `beta_fast`, `beta_slow`, `original_max_position_embeddings`, `mscale`, `mscale_all_dim`. Record as `rope_scaling:<key>=<value>` pairs in `structural_tags`. |
+| R7 Config dtype/precision signals | Scan `config.json` for top-level fields signaling dtype/precision (e.g., `expert_dtype`, `torch_dtype`, `bf16`), even if redundant with `quantization_config`. Record as `config_precision_signals`. |
+| R8 Generation-mode constraints | Inspect the `PreTrainedModel` subclass for: `_is_stateful` (True = append-only KV cache), non-rewindable cache flags, `_no_split_modules`, `_keys_to_never_split`. Record as `generation_constraints`. |
+
 ---
 
 ## Stage 2 -- Select Candidate (skipped when `inherited_from`)
@@ -186,6 +199,19 @@ Common examples:
 
 Each entry must include source evidence (`hf_file`, `hf_line`, config fields), required behavior, affected existing modules if known, and a validation hint.
 
+**Additional comparison/extraction rules (model-agnostic):**
+
+| Rule | What to record |
+|------|---------------|
+| X1 FP32 module lists | Record strict_fp32 / non_strict_fp32 from R1 as a top-level `fp32_modules` section in model_spec.yaml. Compare against candidate; modules absent from candidate's fp32 list go into `delta`. |
+| X2 MoE behavior_modifications scope | When a `behavior_modification` references `moe_experts`, explicitly check whether `moe_shared_experts` share the same behavior. If yes, extend `affected_existing_modules` to include `moe_shared_experts`. Do not assume routed and shared experts always diverge. |
+| X3 Compressor state as behavior_modification | When a novel module has `has_internal_state` (R4), create a `behavior_modification` entry: `component: <novel_module>`, `behavior_type: state_management`, capturing the state mechanism (rolling overlap, windowed accumulation, etc.). |
+| X4 Compressor causal masking as behavior_modification | When a novel module has `causal_masking` (R5), create a `behavior_modification` entry: `component: <novel_module>`, `behavior_type: causal_masking`, capturing the masking logic. |
+| X5 `rope_scaling` sub-field comparison | Compare R6 sub-fields against candidate's `rope_scaling`. Fields present in the new model but absent or different in the candidate go into `positional_encoding.delta`. |
+| X6 Config dtype/precision comparison | Compare R7 `config_precision_signals` against candidate config. Novel or changed dtype fields go into a top-level `config_precision_delta`. |
+| X7 Novel module count verification | Verify `len(novel_modules)` matches R3 count. Mismatch flagged in `traps`. |
+| X8 Generation constraints comparison | Compare R8 `generation_constraints` against candidate. Novel constraints (e.g., `_is_stateful=True` when candidate has no such flag) go into a top-level `generation_constraints` section. |
+
 **traps / special_features identification:**
 - `routing_bias`: moe_gate forward has bias/correction participating in score -> `special_features.routing_bias`
 - `mtp_absent`: config has MTP field but HF has no implementation -> append explanation to `traps`
@@ -222,6 +248,16 @@ novel_modules:
     hf_line: ~
     desc: "DSA indexer, implemented in tilelang external library"
     external_dependency: true
+    sub_modules: []          # R2: nn.Module sub-components from __init__
+    key_params: []           # R2: scaling constants, persistent buffers
+
+fp32_modules:
+  strict_fp32: []            # R1: modules in _keep_in_fp32_modules directly
+  non_strict_fp32: []        # R1: modules added conditionally via config
+
+generation_constraints: []    # R8/X8: _is_stateful, non-rewindable cache, _no_split_modules, etc.
+
+config_precision_delta: []   # X6: dtype/precision fields novel or different vs candidate
 
 behavior_modifications:
   - id: swiglu_clamp_offset

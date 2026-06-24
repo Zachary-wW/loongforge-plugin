@@ -296,6 +296,8 @@ Strategy decisions must cite evidence from Step 2c reading: for each component, 
 
 ## Step 3 — Per-File Code Generation
 
+**MANDATORY: Before generating ANY code, re-read ALL `structural_rules` in `strategy_rules.yaml` and verify each rule's `when` condition against the current model. Every applicable rule MUST be satisfied — violations are blocking errors, not warnings. If any rule's `violation_signal` is detected in your generated code, you MUST fix it before proceeding to the next file.**
+
 Generation order see `knowledge_base/schema/FILE_STRUCTURE.md` (generation order section). `wrap_megatron` / `new_impl` new .py files must be generated before `_layer_spec.py`.
 
 Generation flow for each file:
@@ -326,12 +328,59 @@ c. Generate content per final_strategy:
 d. Before writing, run through RULES.md Self-Check Checklist by file type
 e. Write target file
 f. Special handling:
-   _model.py  -> Inject PHASE1_VERIFY hook (see knowledge_base/recipes/forward_debug.md)
+   _model.py  -> Inject PHASE1_VERIFY hook (see knowledge_base/recipes/forward_debug.md). This hook is TEMPORARY SCAFFOLDING for Step 7 verification only — it MUST be removed or gated after Step 7 passes (see Step 7 Post-Pass Cleanup below)
    chat_template -> Translate jinja -> _register_chat_template(), append to loongforge/data/chat_template.py
    VLM        -> Per knowledge_base/recipes/vlm_task_encoder.md, determine whether to create a new Task Encoder
 ```
 
-**Step 3.5 — YAML Value Verification**: after generating `configs/models/<family>/<model>.yaml`, verify field by field per `knowledge_base/schema/HF_OMNI_FIELD_MAP.md`; proceed to Step 4 after passing.
+### Generation Guard Rails (Step 3 mandatory rules)
+
+These rules apply to every model adaptation. They prevent recurring errors that are independent of any specific model family.
+
+**G1 — Config defaults come from the target model's HF config.json, not from the candidate family's defaults.** When the HF config.json specifies a field with a different value than the candidate family's default, the HF value wins. Never copy candidate family default values into the generated config without confirming they match the target model's HF config.json.
+
+**G2 — LoongForge config naming convention: HF-facing names as YAML config dataclass fields, Megatron internal names mapped in `__post_init__`.** Use HF-facing names (matching what appears in config.json) as the `@dataclass` field names. Map to Megatron internal names inside `__post_init__`. Examples of known mappings: `hc_mult` -> `num_residual_streams`, `hc_sinkhorn_iters` -> `mhc_sinkhorn_iterations`, `swiglu_limit` -> `activation_func_clamp_value`. When discovering new mappings, document them in the generated config's module docstring.
+
+**G3 — All HF config.json fields must be accounted for.** Every field present in the target model's HF config.json must appear in the generated config — either as a field inherited from the base class (`TransformerConfig` / `MLATransformerConfig`) or as a custom field declared in the model-specific config. Do NOT redeclare fields already inherited from base classes; check the base class MRO before adding a field.
+
+**G4 — `__post_init__` must include three sections: (a) field mapping** (HF-facing -> Megatron internal names), **(b) validation assertions** (e.g., `csa_compress_ratios` length and value bounds, `sequence_parallel` disabled when required), **(c) derived field computation** (e.g., `qk_head_dim = v_head_dim - qk_pos_emb_head_dim`). Each section should be clearly commented.
+
+**G5 — Model class naming: use `<Family>Model`, not `<Family>ModelWithMTP` or other suffixes.** MTP support is implicit in the GPT model base class (`GPTModel`). Do not add a `WithMTP` suffix or create a separate class for MTP variants.
+
+**G6 — `_extra_state` key matching: use a general substring pattern containing `._extra_state`, not an explicit module name enumeration.** Hardcoded module name lists break when layer names change. Use a pattern like `'._extra_state'` to match all extra-state keys regardless of which module they belong to. Add a docstring explaining which keys must NOT be ignored (e.g., `tid2eid` for token-to-expert mapping, `expert_bias` for MoE bias) and why — these carry non-trivial data that affects forward computation.
+
+**G7 — Config directory naming: discover from the actual LoongForge `configs/models/` directory structure.** Run `ls configs/models/` in the LoongForge repo to see how existing families name their directories. Use the discovered naming convention, not the model's Python display name or an assumed convention.
+
+**G8 — HyperConnection slot dispatch.** When the model's `model_spec` or HF config.json indicates `enable_hyper_connections=True`, the layer_spec MUST use `HyperConnectionModule` (imported from `megatron.core.transformer.hyper_connection`) for both `self_attention_hyper_connection` and `mlp_hyper_connection` slots. When disabled, use `IdentityOp`. Pattern:
+```python
+from megatron.core.transformer.hyper_connection import HyperConnectionModule
+from megatron.core.tensor_parallel import IdentityOp
+# ...
+hc_module = HyperConnectionModule if config.enable_hyper_connections else IdentityOp
+```
+Do not omit HyperConnection slots when the flag is set; do not hardcode `IdentityOp` when HyperConnections are enabled.
+
+**G9 — Attention MUST inherit from Megatron `Attention` base class.** When the model uses a hybrid, sparse, or compressor-based attention variant (detected by `model_spec.components.attention.diff==differs` or `strategy==new_impl`), the attention module class MUST inherit from `megatron.core.transformer.attention.Attention`, NOT from a standalone `MegatronModule`. The typical pattern is a two-class hierarchy: a base class handling grouped output projection, inverse RoPE, and core_attention delegation; a self-attention subclass adding Q/KV projections. See `structural_rules.attention_base_class_inheritance` in strategy_rules.yaml for full details.
+
+**G10 — Core attention slot MUST delegate to the novel sub-module.** When the model has CSA, HCA, or other novel core attention sub-modules, the layer_spec MUST fill the `core_attention` slot with `ModuleSpec(module=CompressedSparseAttention, submodules=...)`, NEVER with `IdentityOp`. The attention class's forward MUST call `self.core_attention(...)`, not fall back to a raw `torch.matmul(q, k.transpose())`. See `structural_rules.core_attention_slot_delegation`.
+
+**G11 — Config field names MUST follow LoongForge family convention.** Before inventing field names, read the candidate family's existing config class and the HF config.json. Use established prefixes (`csa_`, `moe_`, `mhc_`/`hc_`). When the HF name differs from Megatron's name, add a `__post_init__` mapping entry. See `structural_rules.config_field_naming_convention`.
+
+**G12 — `experimental_attention_variant` is MANDATORY for non-standard attention.** If the model uses CSA/HCA/sparse/hybrid attention, config MUST include `experimental_attention_variant` (e.g. `"dsv4_hybrid"`) and the YAML must include `v_head_dim` and `qk_pos_emb_head_dim`. Without this, Megatron's attention factory will instantiate the wrong class. See `structural_rules.experimental_attention_variant_mandatory`.
+
+**G13 — Compress ratios MUST be per-layer list, not dict.** Use `csa_compress_ratios: Optional[List[int]]` with length `num_layers + mtp_num_layers`, where each entry is 0 (window-only), 4 (CSA), 128 (HCA), etc. The `__post_init__` MUST validate list length and allowed values. See `structural_rules.csa_compress_ratios_per_layer_list`.
+
+**G14 — Layer_spec MUST use BackendSpecProvider pattern.** Use `TESpecProvider` or `BackendSpecProvider` for constructing specs, NOT `multiacc_modules.TEColumnParallelLinear` direct access. Grouped output projection MUST use flat `nn.Parameter` + `view()` + `einsum`, not custom `nn.Module` class. See `structural_rules.backend_spec_provider_pattern` and `structural_rules.grouped_output_projection_flat_parameter`.
+
+**Step 3.5 — YAML Value Verification**: after generating `configs/models/<family>/<model>.yaml`, verify field by field per `knowledge_base/schema/HF_OMNI_FIELD_MAP.md`; proceed to Step 4 after passing. Pay special attention to fields that are frequently mis-assigned:
+
+- `rotary_interleaved` — must match the HF config.json `rope_interleaved` or equivalent field, not the candidate family default
+- `qk_layernorm` — must match HF config.json, not assumed from candidate family
+- `mtp_num_layers` — must match the HF config.json MTP section; 0 when absent
+- `apply_rope_fusion` — must match the HF config.json rope fusion setting
+- `moe_shared_expert_intermediate_size` — for MoE models, must match the HF config.json exactly; 0 or absent when no shared expert
+
+Cross-check every YAML value against the HF config.json source, not against candidate family defaults.
 
 ---
 
@@ -408,6 +457,33 @@ Fallback to Phase 0 is allowed for:
 - missing structural tags that affect generation strategy, including MoE, QK norm, RoPE variant, MLA, MTP, linear attention, VLM encoder, or projector structure.
 
 Phase 1 top-level `passed` is prohibited unless `phase1-verify.status == passed` in the latest iteration.
+
+### Step 7 Post-Pass Cleanup
+
+After `phase1-verify.status == passed`, the PHASE1_VERIFY hook injected into `_model.py` during Step 3 is NO LONGER needed. It is temporary scaffolding and must be removed or gated before Phase 1 completes:
+
+1. **Remove** the PHASE1_VERIFY hook code from `_model.py` entirely, OR
+2. **Gate** it behind an environment variable that defaults to disabled, e.g.:
+   ```python
+   if os.environ.get("PHASE1_VERIFY_ENABLED", "0") == "1":
+       # PHASE1_VERIFY hook code here
+       ...
+   ```
+   ⚠ **Gating is NOT acceptable for production code.** Prefer removal.
+
+3. After cleanup, re-run Step 6 L0 Smoke Test to confirm the import still works.
+4. Record the cleanup action in `phases/phase1/attempts.jsonl` as `kind="cleanup"`.
+
+**MANDATORY pre-pass scan (structural_rules.debug_scaffold_cleanup):** Before writing `phase1_output.yml` with `status=passed`, scan ALL generated .py files for:
+- `os.environ.get("OMNI_PHASE1_VERIFY")` or similar env-var-gated test hooks
+- `torch.arange(...)` or other synthetic tensor generation inside `forward()`
+- `# DEBUG`, `# VERIFICATION`, `# TEMP` commented blocks
+- `if VERIFY`, `if DEBUG`, `if _TEST` conditional branches
+- Any code that overrides normal forward behavior with test inputs
+
+All such scaffolding MUST be removed entirely. Leaving debug hooks in production code is a blocking violation.
+
+This ensures the merged code does not carry verification scaffolding into production use.
 
 ---
 
