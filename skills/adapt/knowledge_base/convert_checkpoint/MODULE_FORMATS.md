@@ -79,6 +79,20 @@ Applicable models: **Qwen 3.5** (dense + MoE), **Qwen3_next**
 
 Q/KV each have down+up low-rank projections + layernorm, **no standard QKV**.
 
+> **Canonical key names**: MLA uses `kv_down`/`kv_norm` (not `kv_shared`/`kv_shared_layernorm`) as the
+> canonical LoongForge key names for the KV compression path. The `kv_up_layernorm` key name is likewise
+> canonical (not `kv_shared_layernorm`). All adapt name maps must use these canonical names.
+>
+> **Layernorm mapping**: In mcore, MLA layernorms are **separate extra modules** --
+> `self_attention.kv_layernorm` and `self_attention.q_layernorm` -- not `is_layernorm` flags on
+> projection modules. Do not attempt to fuse MLA layernorms into their adjacent projections the way
+> standard layernorms fuse into `linear_qkv` (6A). MLA layernorms always map as independent entries:
+> ```yaml
+> # name_map.mcore (MLA layernorms are standalone modules)
+> attention.q_up_layernorm:  self_attention.q_layernorm
+> attention.kv_up_layernorm: self_attention.kv_layernorm
+> ```
+
 ```yaml
 # name_map.huggingface (6 independent entries)
 attention.q_down:   self_attn.q_a_proj
@@ -163,6 +177,92 @@ attention.kv_a_layernorm: self_attn.k_norm
 ```
 
 Applicable models (stacked on top of 1A/1C): Qwen 3 full series, MiniMax, Qwen 3.5, Qwen3_next, InternVL ViT 6B
+
+### 1I. HyperConnection (Multi-Head Hyper Connection)
+
+Each HyperConnection (HC) decomposes into 5 parameters: `fn`, `base`, `alpha_pre`, `alpha_post`, `alpha_res`.
+Attention-side and FFN-side HC are separate module groups (`hc_attn_*` / `hc_ffn_*` in HF).
+
+```yaml
+# name_map.huggingface -- attention HC
+attention.hc_attn_fn:         { name: hc_attn_fn, is_direct_name: true }
+attention.hc_attn_base:       { name: hc_attn_base, is_direct_name: true }
+attention.hc_attn_alpha_pre:  { name: hc_attn_alpha_pre, is_direct_name: true }
+attention.hc_attn_alpha_post:  { name: hc_attn_alpha_post, is_direct_name: true }
+attention.hc_attn_alpha_res:  { name: hc_attn_alpha_res, is_direct_name: true }
+
+# name_map.huggingface -- FFN HC
+attention.hc_ffn_fn:         { name: hc_ffn_fn, is_direct_name: true }
+attention.hc_ffn_base:       { name: hc_ffn_base, is_direct_name: true }
+attention.hc_ffn_alpha_pre:  { name: hc_ffn_alpha_pre, is_direct_name: true }
+attention.hc_ffn_alpha_post: { name: hc_ffn_alpha_post, is_direct_name: true }
+attention.hc_ffn_alpha_res:  { name: hc_ffn_alpha_res, is_direct_name: true }
+
+# name_map.mcore -- attention HC
+attention.hc_attn_fn:         { name: self_attention_hyper_connection.mapping_proj, ignore_tp: true }
+attention.hc_attn_base:       { name: self_attention_hyper_connection.bias, ignore_tp: true }
+attention.hc_attn_alpha_pre:  { name: self_attention_hyper_connection.alpha_pre, ignore_tp: true }
+attention.hc_attn_alpha_post: { name: self_attention_hyper_connection.alpha_post, ignore_tp: true }
+attention.hc_attn_alpha_res:  { name: self_attention_hyper_connection.alpha_res, ignore_tp: true }
+
+# name_map.mcore -- FFN HC
+attention.hc_ffn_fn:         { name: mlp_hyper_connection.mapping_proj, ignore_tp: true }
+attention.hc_ffn_base:       { name: mlp_hyper_connection.bias, ignore_tp: true }
+attention.hc_ffn_alpha_pre:  { name: mlp_hyper_connection.alpha_pre, ignore_tp: true }
+attention.hc_ffn_alpha_post: { name: mlp_hyper_connection.alpha_post, ignore_tp: true }
+attention.hc_ffn_alpha_res:  { name: mlp_hyper_connection.alpha_res, ignore_tp: true }
+```
+
+No custom converter -- each parameter is a simple 1-to-1 mapping. All mcore HC entries carry `ignore_tp: true` because HC parameters are not partitioned by tensor parallel.
+
+Applicable models: Any model with multi-head HyperConnections (e.g. DeepSeek V3+, V4, and future mHC models)
+
+### 1J. Grouped Output Projection (Split wo)
+
+MLA models with split output projections store `wo` as two separate tensors: `wo_a` (group projection) and `wo_b` (final projection).
+
+```yaml
+# name_map.huggingface
+attention.wo_a: self_attn.wo_a    # group output projection
+attention.wo_b: self_attn.wo_b    # final output projection
+
+# name_map.mcore
+attention.wo_a:
+  name: self_attention.linear_o_group_proj
+  is_direct_name: true
+  # bare Parameter (no RowParallelLinear wrapper)
+
+attention.wo_b:
+  name: self_attention.linear_proj
+  extra: true
+  fp8: true
+  # RowParallelLinear
+```
+
+Tensor-parallel dimension entries:
+```yaml
+tensor_parallel_dim:
+  attention.wo_a: 0
+  attention.wo_b: 1
+```
+
+No custom converter -- each is a simple 1-to-1 mapping. `wo_a` uses a bare `Parameter` in mcore (not wrapped in `RowParallelLinear`), hence `is_direct_name: true`. `wo_b` is the standard output projection with `extra: true` and optional `fp8: true`.
+
+Applicable models: Any MLA model with split output projections
+
+### Attention-Internal Sub-module Hierarchy
+
+Attention-internal sub-modules (e.g. `attn_sink`, `compressor`, `indexer`) reside under `self_attention.core_attention.*` in mcore, **not** directly under `self_attention.*`. When mapping such modules, the mcore path must include the `core_attention` intermediate:
+
+```yaml
+# WRONG:
+attention.indexer.wk: self_attention.indexer.wk
+
+# CORRECT:
+attention.indexer.wk: self_attention.core_attention.indexer.wk
+```
+
+This applies to any model with attention-internal sub-modules (sparse attention indexers, sink tokens, KV compressors, etc.).
 
 ---
 
@@ -463,12 +563,18 @@ Given a module in a new model, match in the following order:
 
 ### Attention
 ```
+Has hc_attn_fn / hc_ffn_fn?       -> HyperConnection (1I)
+Has wo_a / wo_b (split output)?   -> Grouped Output Projection (1J)
 Has q_a_proj / kv_a_proj_with_mqa? -> MLA (1D) or Partial MLA (1E)
 Has linear_attn / A_log?           -> Mixer Attention (1G)
 Q dimension = 2x standard?         -> Gated Attention (1C)
 Separate q_proj/k_proj/v_proj?     -> Standard QKV separated (1A)
 Single qkv tensor?                  -> Standard QKV fused (1B)
 ```
+
+> **Note on attention-internal sub-modules**: Modules like `indexer`, `attn_sink`, or `compressor`
+> live under `self_attention.core_attention.*` in mcore -- never directly under `self_attention.*`.
+> See "Attention-Internal Sub-module Hierarchy" above.
 
 ### MLP
 ```

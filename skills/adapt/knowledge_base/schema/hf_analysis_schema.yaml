@@ -1,0 +1,116 @@
+# Schema template for phases/phase0/hf_analysis.yaml. Supersedes model_spec.yaml (per D-04).
+#
+# This file documents the structure of the hf_analysis.yaml output artifact
+# produced by Phase 0. All fields are mirrored from the HfAnalysis Pydantic v2
+# model in skills/adapt/lib/schema.py.
+#
+# Every field from the current model_spec_llm.yaml example has a home in this
+# schema. The `weight_structure` section is appended by Phase 0 Step 4 (same
+# as the current model_spec.yaml Step 4).
+
+model_category: llm | vlm | diffusion  # REQUIRED
+
+candidate_family: <family_name>         # REQUIRED — e.g. "deepseek_v3", "qwen3"
+
+hf_reference_path: <path-or-url>       # REQUIRED — path to HF candidate reference
+
+candidate_match_reason: <reason>        # REQUIRED — why this candidate was chosen
+
+has_chat_template: false                # Whether the model has a chat template
+
+# --- Low-confidence candidate (per D-12) ----------------------------------
+# When KB has no entry for the target model, Phase 0 selects the closest
+# candidate and marks it as low-confidence.
+
+low_confidence_candidate: null          # true when candidate match is uncertain
+low_confidence_reason: null             # Why confidence is low
+
+# --- Component analysis (maps from model_spec components) -----------------
+# Each key is a component name (e.g. "embedding", "attention", "moe_gate").
+# The component dict preserves all fields from current model_spec_llm.yaml.
+
+components:
+  <component_name>:
+    diff: same | differs | new_component | absent_in_hf   # REQUIRED
+    strategy: reuse_ref | adapt_ref | new_impl             # REQUIRED
+    delta: []                  # List of structural differences (from current model_spec)
+    note: null                 # Optional free-text note
+    hf_class: <class_name>    # HF class implementing this component
+    hf_file: <file_name>      # Source file containing this component
+    hf_line: <line_number>    # Line number of class definition
+    structural_tags: []       # Feature tags for matching/reference
+    same_class_as: null        # When same class used for another component
+
+# Example components (from DeepSeek-V3 model_spec_llm.yaml):
+#  embedding:
+#    diff: same
+#    strategy: reuse_ref
+#    hf_class: inline
+#    hf_file: modeling_deepseek.py
+#    hf_line: 1344
+#    structural_tags: [untied, padding_idx]
+#  attention:
+#    diff: differs
+#    strategy: adapt_ref
+#    delta:
+#      - "q_lora_rank: 1536 (new) -> absent (candidate lacks)"
+#      - "v_head_dim: 128 (new) -> 96 (candidate)"
+#    hf_class: DeepseekV3Attention
+#    hf_file: modeling_deepseek.py
+#    hf_line: 630
+#    structural_tags: [mla, q_lora_rank=1536, kv_lora_rank=512,
+#                      qk_nope_head_dim=128, qk_rope_head_dim=64,
+#                      v_head_dim=128, decoupled_rope]
+
+# --- Novel modules (modules not present in candidate) ---------------------
+novel_modules:
+  - hf_class: <class_name>     # REQUIRED
+    hf_file: <file_name>
+    hf_line: <line_number>
+    desc: <description>         # REQUIRED
+    external_dependency: false  # Whether this module depends on external code
+    sub_modules: []             # Sub-modules within this module
+    key_params: []              # Key parameters for this module
+
+# --- FP32 modules (per D-01 new section) ---------------------------------
+fp32_modules:
+  strict_fp32: []     # Modules that must run in FP32 (e.g. ["lm_head"])
+  non_strict_fp32: [] # Modules that may run in FP32 but are not required
+
+# --- Additional new sections (per D-01) ----------------------------------
+generation_constraints: []        # Generation-time constraints (e.g. "no beam search")
+config_precision_delta: []        # Config field precision differences
+
+# --- Behavior modifications (mandatory when config fields change computation) ---
+behavior_modifications:
+  - id: <BM1>                    # REQUIRED — unique identifier
+    component: <component_name>  # REQUIRED
+    behavior_type: <type>        # REQUIRED — e.g. "routing_bias", "activation_clamp"
+    source_evidence:             # REQUIRED
+      hf_file: <file_name>
+      hf_line: <line_number>
+      config_fields: []          # Config fields driving this behavior
+    required_behavior: <description>  # REQUIRED — what must happen
+    affected_existing_modules: []      # Modules affected by this modification
+    validation_hint: ""                # How to verify this behavior
+
+# --- Traps and pitfalls ---------------------------------------------------
+traps:
+  - "Description of a trap or pitfall for downstream phases"
+
+# --- Special features (optional, model-specific) --------------------------
+special_features: null             # Dict of model-specific features
+                                 # e.g. {routing_bias: {hf_key: ..., desc: ...}}
+
+# --- Weight structure (appended by Phase 0 Step 4) -----------------------
+# This section is added after the HF analysis is complete. It groups weights
+# by component prefix and provides naming patterns and index ranges.
+# Same as current model_spec.yaml Step 4 behavior.
+weight_structure:
+  total_keys: 0
+  components:
+    <component_name>:
+      key_count: 0
+      sample_keys: []
+      naming_pattern: ""
+      index_range: ""

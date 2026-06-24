@@ -1,5 +1,9 @@
 # Schema template for phases/phase3_output.yml.
 # Phase 3 emits this top-level shape. Select values according to reference_type.
+#
+# DEPRECATED: reference_contract_path is absorbed into bridge_mapping.yaml (per Phase 6 D-05).
+# Phase 3 reads bridge_mapping.implementation_contract, bridge_mapping.conversion_requirements,
+# and bridge_mapping.phase3_reference_requirements instead.
 
 phase: 3
 status: passed | human_needed
@@ -46,6 +50,7 @@ steps:
 
 source:
   hf_ckpt_path: "<from run_inputs.yml — original HF path>"
+  bridge_mapping_path: "<from phase0_output — primary input for contract and reference requirements>"
   mcore_ckpt: "<phase2_output.artifacts.output_ckpt>"
   convert_yaml: "<resolved from phase2_output.artifacts.generated_files; null for standalone if not used>"
 
@@ -76,6 +81,7 @@ checks:
   train_step_loss_max_diff: 0.001
   grad_norms_finite: true
   per_layer_diagnosis: null | "<diverge_layer>"
+  bridge_mapping_consumed: true  # true when bridge_mapping was used as primary input
 
   # Standalone-smoke checks; null/skipped for normal reference-mode runs.
   loss_range_passed: true | null
@@ -122,6 +128,7 @@ mode_rules:
       - forward_loss_diff
       - train_step_loss_max_diff
       - grad_norms_finite
+      - bridge_mapping_consumed
   standalone:
     reference_type_values: [standalone]
     explicit_dispatch_required: true
@@ -133,4 +140,5 @@ mode_rules:
       - determinism_passed
       - gradient_finite
       - parameter_update_verified
+      - bridge_mapping_consumed
     diagnosis: "standalone mode has no external reference loss alignment"

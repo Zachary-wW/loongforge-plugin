@@ -1,3 +1,14 @@
+# ============================================================
+# DEPRECATED — This schema is absorbed into bridge_mapping.yaml
+# (per D-05 in Phase 6 Phase 0 Redesign).
+#
+# The fields below (references, implementation_contract,
+# conversion_requirements, phase3_reference_requirements)
+# are now subsections of bridge_mapping.yaml.
+#
+# See: knowledge_base/schema/bridge_mapping_schema.yaml
+# ============================================================
+
 # Schema template for phases/phase0/reference_contract.yml.
 # Phase 0 fills this with model-specific references and downstream contracts.
 

@@ -14,9 +14,11 @@ Read the following source files at phase start:
 | Source File | Required | Key Fields Used |
 |-------------|----------|-----------------|
 | `run_dir/run_inputs.yml` | Yes | `source.hf_ckpt_path` (always original), `paths.omni_path`, `paths.megatron_path`, `options.model_name` |
-| `run_dir/phases/phase0_output.yml` | Yes | `source.hf_ckpt_path`, `slice.hf_ckpt_path` (for environment reference), `artifacts.reference_contract_path`, `artifacts.model_spec_path` |
+| `run_dir/phases/phase0_output.yml` | Yes | `artifacts.bridge_mapping_path` (primary), `artifacts.model_spec_path` (legacy fallback), `artifacts.reference_contract_path` (deprecated) |
 | `run_dir/phases/phase1_output.yml` | Yes | `artifacts.example_pretrain_script`, `artifacts.phase1_verify_report_path`, strategy/native integration evidence when present |
 | `run_dir/phases/phase2_output.yml` | Yes | `artifacts.output_ckpt`, `artifacts.generated_files`, `conversion.production_gate`, `validator` |
+
+**Bridge mapping consumption rule**: `bridge_mapping_path` is the PRIMARY input for Phase 3 contract and reference requirements. `reference_contract_path` is DEPRECATED — its fields have been absorbed into bridge_mapping.yaml (per Phase 6 D-05: implementation_contract, conversion_requirements, phase3_reference_requirements, references). When `bridge_mapping_path` is absent, fall back to `reference_contract_path` and `model_spec_path` for legacy compatibility.
 
 **Path usage rule**:
 - `run_dir` — adaptation run root containing `run_inputs.yml` and `phases/*_output.yml`
@@ -25,6 +27,32 @@ Read the following source files at phase start:
 - `phase2_output.artifacts.output_ckpt` — the converted mcore checkpoint, loaded by the Omni script
 - Phase-local artifacts (`verify_report.json`, `mock_input/`, `run_real_weight.sh`, `loss_diff/`, `hf_tensors/`) must be written under `phase3_dir`, not under `run_dir` directly.
 
+## Loop Engineering Hooks
+
+> These steps apply ONLY when `run_inputs.yml` contains a `repos:` block (loop-engineering mode).
+> Skip entirely for legacy invocations that do not provide `repos:`.
+
+### Pre-Edit: Branch Creation
+
+Before writing any files to the target repositories:
+
+1. Read `run_inputs.yml` and check if `repos:` block is present.
+2. If present, invoke `gh_helper.create_branch(owner_repo, branch="adapt/<run_id>/phase3/attempt<K>", base=<base_ref>)` on **both** target repos:
+   - **LoongForge repo**: use `repos.loongforge.url` for `owner_repo` and `repos.loongforge.ref` for `base_ref`.
+   - **Megatron repo**: use `repos.megatron.url` for `owner_repo` and `repos.megatron.ref` for `base_ref`.
+3. Record both branch names in `phases/phase3/attempts.jsonl` as `kind="branch"` entries (one per repo).
+4. If branch creation fails (already exists or name conflict), check `gh_helper.find_by_idempotency_key` for an existing artifact and reattach rather than creating a duplicate.
+
+### Post-Edit: PR Submission
+
+After writing all phase artifacts and before running the validator:
+
+1. If `repos:` block is present, invoke `gh_helper.open_pr(...)` on **both** repos:
+   - **LoongForge repo**: `gh_helper.open_pr(owner_repo, head=<branch>, base=<base_ref>, run_id=<run_id>, phase=3, attempt=<K>, kind="base")` with templated title/body.
+   - **Megatron repo**: `gh_helper.open_pr(owner_repo, head=<branch>, base=<base_ref>, run_id=<run_id>, phase=3, attempt=<K>, kind="base")`. The Megatron PR body MUST pin the LoongForge commit SHA (VAL-05: `loongforge_commit_sha: <sha>`).
+2. Record both PR numbers and URLs in `phases/phase3_output.yml` under the `pr:` block.
+3. Merge **both** PRs via `gh_helper.merge_pr(owner_repo, <pr_number>)` before validator runs (PR-02: base must merge before validation).
+4. If any PR diff touches protected paths under `references/phases/phase3/verify.md` or `loongforge-phase-gate`, the loop controller will handle escalation to `human_needed` (PR-06).
 ## State Machine
 
 ### States
@@ -145,17 +173,22 @@ Before modifying scripts or parameters for a repair, read `attempts.jsonl` to av
 
 ### Step 0 — Contract and artifact preflight
 
-Before generating mock input or selecting a reference loader, read:
-- `phase0_output.artifacts.reference_contract_path` when present
-- `phase0_output.artifacts.model_spec_path`
-- `model_spec.phase3_reference_requirements`
+Before generating mock input or selecting a reference loader, read `bridge_mapping_path` as primary input for contract and requirements. When bridge_mapping.yaml is present, extract:
+- `bridge_mapping.implementation_contract` (replaces reference_contract.implementation_contract)
+- `bridge_mapping.conversion_requirements` (replaces reference_contract.conversion_requirements)
+- `bridge_mapping.phase3_reference_requirements` (replaces model_spec.phase3_reference_requirements)
+- `bridge_mapping.validator_requirements` (Phase 0 declared verification requirements for Phase 3)
+
+When `bridge_mapping_path` is absent, fall back to reading `reference_contract_path` and `model_spec_path` for legacy compatibility.
+
+Also read:
 - `phase2_output.conversion.production_gate`
 - `phase2_output.validator`
 
 Preflight checks:
-1. Phase 2 production conversion passed when `model_spec.conversion_requirements.must_emit_target_checkpoint` or `target_checkpoint_format: mcore|native_framework` is required.
+1. Phase 2 production conversion passed when `bridge_mapping.conversion_requirements.must_emit_target_checkpoint` (or legacy fallback: `model_spec.conversion_requirements.must_emit_target_checkpoint`) or `target_checkpoint_format: mcore|native_framework` is required.
 2. `phase2_output.artifacts.output_ckpt` exists and is not an HF-only reversible container. If `conversion_requirements.target_checkpoint_format: hf_only`, Phase 3 reference-mode loss diff cannot proceed unless the dispatcher explicitly selects a workflow that does not require MCore loading; otherwise return `phase3_contract_preflight` with `fallback_phase="phase2"`.
-3. If `phase3_reference_requirements.custom_reference_loader_required` is true, a dispatcher-provided custom loader must be available before accepting default HF loading.
+3. If `bridge_mapping.phase3_reference_requirements.custom_reference_loader_required` (or legacy fallback: `model_spec.phase3_reference_requirements.custom_reference_loader_required`) is true, a dispatcher-provided custom loader must be available before accepting default HF loading.
 4. Reference-type-specific contract checks run in Step 2 after Phase 3 resolves the dispatcher override or default value.
 
 Failure handling:
@@ -189,11 +222,11 @@ Use the default reference configuration unless the dispatcher prompt explicitly 
 These fields are not read from input files by default. If a non-default reference path is needed, the main Agent must pass it explicitly in the Phase 3 prompt.
 
 After resolving `reference_type`, apply the Phase 0 contract:
-- `reference_type` must be allowed by `phase3_reference_requirements.allowed_reference_types` when the field exists.
+- `reference_type` must be allowed by `bridge_mapping.phase3_reference_requirements.allowed_reference_types` when the field exists (or by `model_spec.phase3_reference_requirements.allowed_reference_types` as legacy fallback).
 - If default HF reference is selected, no contract field may declare default `AutoModel` loading untrustworthy due to required key transforms, special precision loading, multimodal context, or other reference-loading behavior.
 - `standalone` is allowed only when both the dispatcher requested it and the contract permits it, and it must be reported as `standalone-smoke` rather than normal precision verification.
 
-Before accepting the default HF reference path, inspect `phase0_output.artifacts.model_spec_path`. If `phase3_reference_requirements.custom_reference_loader_required` is true, or if `behavior_modifications` contains `behavior_type: fp8_reference_load`, `checkpoint_key_transform`, `mtp_context`, or any reference-loading note, plain `AutoModelForCausalLM.from_pretrained()` is not assumed trustworthy. In that case Phase 3 must either use an explicit custom reference loader or return `human_needed` with `failure_gate="reference_loader_required"`.
+Before accepting the default HF reference path, inspect bridge_mapping (or model_spec as fallback). If `bridge_mapping.phase3_reference_requirements.custom_reference_loader_required` is true, or if `bridge_mapping.component_bridge[].behavioral_diff` contains reference-loading behavior types (`behavior_type: fp8_reference_load`, `checkpoint_key_transform`, `mtp_context`, or any reference-loading note), plain `AutoModelForCausalLM.from_pretrained()` is not assumed trustworthy. In that case Phase 3 must either use an explicit custom reference loader or return `human_needed` with `failure_gate="reference_loader_required"`.
 
 **When to use `standalone`**:
 - Only when the dispatcher prompt explicitly sets `reference_type="standalone"`
@@ -282,8 +315,9 @@ mcore_ckpt       <- phase2_output.artifacts.output_ckpt
 convert_yaml     <- resolved from phase2_output.artifacts.generated_files (configs/models/**/ckpt_convert/*_convert.yaml)
 reference_type   <- explicit Phase 3 prompt override when present, otherwise "hf"
 reference_framework <- explicit Phase 3 prompt override when present, otherwise "transformers"
-reference_contract_path <- phase0_output.artifacts.reference_contract_path when present
-implementation_contract <- model_spec.implementation_contract when present
+bridge_mapping_path <- phase0_output.artifacts.bridge_mapping_path when present
+reference_contract_path <- phase0_output.artifacts.reference_contract_path when present (legacy fallback)
+implementation_contract <- bridge_mapping.implementation_contract when present (or reference_contract.implementation_contract as legacy fallback)
 production_gate  <- phase2_output.conversion.production_gate when present
 contract_preflight <- Step 0 contract_preflight result
 reference_loader <- explicit custom loader path when behavior_modifications require non-standard HF loading
@@ -349,12 +383,14 @@ references/phases/phase3/phase3_output_schema.yaml
 
 The schema is the actual emitted top-level artifact shape expected by `loongforge-phase-gate`: `phase`, `status`, `step_gate`, `steps`, and `validator` stay at the root. It includes mode rules for the `hf` / `megatron` reference-mode variants and the explicit `standalone` smoke variant, including step-gate evidence, source/model metadata, loss-diff artifacts, runtime-evidence checks, and the authoritative `loss-diff` validator result. Do not write `reference_modes` as a wrapper in `phase3_output.yml`.
 
+When bridge_mapping was used as primary input, set `checks.bridge_mapping_consumed: true` in `phase3_output.yml`. When legacy `reference_contract_path` was used instead, set `checks.bridge_mapping_consumed: false` or omit the field.
+
 ---
 
 ## Error Handling
 
 | Situation | Status | Retry? | Notes |
-|------|--------|----------|------|
+|------|--------|----------|-------|
 | Phase 2 not completed | `human_needed` | No | Prerequisite not met, requires manual confirmation of Phase 2 status |
 | HF inference error | `failed` | Yes (up to 5 times per attempt) | Possibly an environment or OOM issue; escalate if still failing after retries |
 | Omni script error | `failed` | Yes (up to 5 times per attempt) | Possibly a parameter error or environment issue; escalate if still failing after retries |
@@ -380,6 +416,7 @@ Phase 3 passes the following fields to Phase 4 via `phase3_output.yml`:
 | `artifacts.verify_report_path` | Path to the `verify_report.json` output by Phase 3 |
 | `artifacts.run_real_weight_script` | Baseline shell script for direct reuse |
 | `artifacts.mock_input_path` | Mock input path for Phase 4 reuse |
+| `checks.bridge_mapping_consumed` | Whether bridge_mapping was used as primary input |
 | `checks` | All verification metrics and pass/fail results |
 | `validator` | Full validator record with name, status, metrics, diagnosis, fallback |
 

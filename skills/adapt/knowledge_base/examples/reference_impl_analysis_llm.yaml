@@ -1,0 +1,456 @@
+# reference_impl_analysis.yaml example -- LLM (DeepSeek-V3 Megatron reference)
+# For Phase 0 reference, not an actual runtime artifact.
+# Demonstrates the Megatron-side analysis output for DeepSeek-V3 family modules.
+
+megatron_family: deepseek_v3
+source_repo: "https://github.com/NVIDIA/Megatron-LM"
+source_ref: "core_v0.15.0"
+analysis_timestamp: "2026-06-24T08:30:00Z"
+
+modules:
+  attention:
+    found: true
+    class_name: MLASelfAttention
+    source_file: megatron/core/transformer/multi_latent_attention.py
+    base_classes:
+      - Attention
+      - MegatronModule
+    init_signature:
+      params:
+        - name: linear_q_proj
+          type_hint: TEColumnParallelLinear
+          default_value: None
+          description: "Q output projection (full-rank, post-compression)"
+        - name: linear_q_down_proj
+          type_hint: TEColumnParallelLinear
+          default_value: None
+          description: "Q latent compression (lora down projection)"
+        - name: linear_q_up_proj
+          type_hint: "TEColumnParallelLinear or TELayerNormColumnParallelLinear"
+          default_value: None
+          description: "Q latent decompression (lora up, grouped output projection)"
+        - name: linear_kv_proj
+          type_hint: TEColumnParallelLinear
+          default_value: None
+          description: "KV latent compression (joint K+V down projection)"
+        - name: linear_kv_up_proj
+          type_hint: TEColumnParallelLinear
+          default_value: None
+          description: "KV latent decompression (up projection to full KV heads)"
+        - name: core_attention
+          type_hint: DotProductAttention
+          default_value: None
+          description: "Flash attention core computation"
+        - name: linear_proj
+          type_hint: TERowParallelLinear
+          default_value: None
+          description: "Output projection (row parallel)"
+        - name: q_layernorm
+          type_hint: "TENorm or IdentityOp"
+          default_value: None
+          description: "Q norm on compressed representation (when qk_layernorm=True)"
+        - name: kv_layernorm
+          type_hint: "TENorm or IdentityOp"
+          default_value: None
+          description: "KV norm on compressed representation (when qk_layernorm=True)"
+    forward_signature:
+      inputs:
+        - name: hidden_states
+          type_hint: Tensor
+          description: "Input hidden states [s, b, h]"
+        - name: attention_mask
+          type_hint: "Optional[Tensor]"
+          description: "Causal or padding mask"
+      outputs:
+        - "output: Tensor [s, b, h]"
+        - "bias: Optional[Tensor]"
+      description: "MLA attention forward with latent Q/KV compression, decoupled RoPE, and flash attention"
+    config_fields_used:
+      - field_name: multi_latent_attention
+        config_class: TransformerConfig
+        usage_description: "Switches from SelfAttention to MLASelfAttention"
+      - field_name: q_lora_rank
+        config_class: MLATransformerConfig
+        usage_description: "Q latent compression rank"
+      - field_name: kv_lora_rank
+        config_class: MLATransformerConfig
+        usage_description: "KV latent compression rank"
+      - field_name: qk_nope_head_dim
+        config_class: MLATransformerConfig
+        usage_description: "Non-positional-encoding head dimension for decoupled RoPE"
+      - field_name: qk_rope_head_dim
+        config_class: MLATransformerConfig
+        usage_description: "RoPE head dimension for decoupled RoPE"
+      - field_name: v_head_dim
+        config_class: MLATransformerConfig
+        usage_description: "Value head dimension"
+    submodule_slots:
+      - slot_name: core_attention
+        slot_type: ModuleSpec
+        default_class: DotProductAttention
+        is_replaceable: true
+      - slot_name: linear_q_proj
+        slot_type: ModuleSpec
+        default_class: TEColumnParallelLinear
+        is_replaceable: true
+      - slot_name: linear_kv_proj
+        slot_type: ModuleSpec
+        default_class: TEColumnParallelLinear
+        is_replaceable: true
+    weight_params:
+      - param_name: linear_q_proj.weight
+        shape_hint: "[num_heads * v_head_dim, q_lora_rank]"
+        dtype: bfloat16
+      - param_name: linear_q_down_proj.weight
+        shape_hint: "[q_lora_rank, hidden_size]"
+        dtype: bfloat16
+      - param_name: linear_q_up_proj.weight
+        shape_hint: "[num_heads * (qk_nope_head_dim + qk_rope_head_dim), q_lora_rank]"
+        dtype: bfloat16
+      - param_name: linear_kv_proj.weight
+        shape_hint: "[num_kv_groups * (kv_lora_rank + qk_rope_head_dim), hidden_size]"
+        dtype: bfloat16
+      - param_name: linear_proj.weight
+        shape_hint: "[hidden_size, num_heads * v_head_dim]"
+        dtype: bfloat16
+
+  moe_router:
+    found: true
+    class_name: TopKRouter
+    source_file: megatron/core/transformer/moe/router.py
+    base_classes:
+      - Router
+      - MegatronModule
+    init_signature:
+      params:
+        - name: weight
+          type_hint: nn.Parameter
+          default_value: None
+          description: "Gating weight matrix [num_experts, hidden_size]"
+        - name: bias
+          type_hint: "Optional[nn.Parameter]"
+          default_value: None
+          description: "Optional gating bias [num_experts]"
+        - name: tid2eid
+          type_hint: "Optional[torch.Tensor]"
+          default_value: None
+          description: "Hash routing token-id-to-expert lookup table (DS V4 extension)"
+        - name: expert_bias
+          type_hint: "Optional[torch.Tensor]"
+          default_value: None
+          description: "Per-expert bias for noaux_tc load balancing (register_buffer)"
+        - name: local_tokens_per_expert
+          type_hint: "Optional[torch.Tensor]"
+          default_value: None
+          description: "Running count of tokens per expert (register_buffer, persistent=False)"
+        - name: global_tokens_per_expert
+          type_hint: "Optional[torch.Tensor]"
+          default_value: None
+          description: "Global aux loss token count (register_buffer, persistent=False)"
+    forward_signature:
+      inputs:
+        - name: input
+          type_hint: Tensor
+          description: "Hidden states for gating [num_tokens, hidden_size]"
+        - name: input_ids
+          type_hint: "Optional[Tensor]"
+          description: "Token IDs for hash-based routing [seq_length, bsz]"
+      outputs:
+        - "probs: Tensor [num_tokens, num_experts]"
+        - "routing_map: Tensor [num_tokens, num_experts]"
+      description: "Top-K routing with optional hash routing, group-limited topk, expert bias, and aux loss"
+    config_fields_used:
+      - field_name: moe_router_topk
+        config_class: TransformerConfig
+        usage_description: "Number of experts to route each token to"
+      - field_name: num_moe_experts
+        config_class: TransformerConfig
+        usage_description: "Total number of MoE experts"
+      - field_name: moe_router_score_function
+        config_class: TransformerConfig
+        usage_description: "Score function: softmax or sigmoid"
+      - field_name: moe_n_hash_layers
+        config_class: TransformerConfig
+        usage_description: "Number of layers using hash-based routing (DS V4 extension)"
+      - field_name: moe_router_enable_expert_bias
+        config_class: TransformerConfig
+        usage_description: "Enable expert bias for noaux_tc load balancing"
+      - field_name: moe_router_load_balancing_type
+        config_class: TransformerConfig
+        usage_description: "Aux loss type: aux_loss, seq_aux_loss, global_aux_loss, sinkhorn, none"
+    submodule_slots: []
+    weight_params:
+      - param_name: weight
+        shape_hint: "[num_experts, hidden_size]"
+        dtype: float32
+      - param_name: bias
+        shape_hint: "[num_experts]"
+        dtype: float32
+      - param_name: expert_bias
+        shape_hint: "[num_experts]"
+        dtype: float32
+      - param_name: tid2eid
+        shape_hint: "[vocab_size, topk]"
+        dtype: int32
+
+  hyper_connection_module:
+    found: true
+    class_name: HyperConnectionModule
+    source_file: megatron/core/transformer/hyper_connection.py
+    base_classes:
+      - MegatronModule
+    init_signature:
+      params:
+        - name: mapping_proj
+          type_hint: nn.Linear
+          default_value: None
+          description: "Projection from n-stream hidden states to mapping parameters (H_pre, H_post, H_res logits)"
+        - name: alpha_pre
+          type_hint: nn.Parameter
+          default_value: None
+          description: "Learnable scaling factor for aggregation weights"
+        - name: alpha_post
+          type_hint: nn.Parameter
+          default_value: None
+          description: "Learnable scaling factor for expansion weights"
+        - name: alpha_res
+          type_hint: nn.Parameter
+          default_value: None
+          description: "Learnable scaling factor for residual mixing logits"
+        - name: bias
+          type_hint: nn.Parameter
+          default_value: None
+          description: "Static bias terms for mapping computation [n^2 + 2n]"
+    forward_signature:
+      inputs:
+        - name: hidden_states
+          type_hint: Tensor
+          description: "n-stream hidden states [s, b, n*C]"
+        - name: mhc_recompute_manager
+          type_hint: "Optional[CheckpointManager]"
+          description: "Optional checkpoint manager for memory-efficient recomputation"
+      outputs:
+        - "aggregated: Tensor [s, b, C] -- input for layer computation"
+        - "h_res: Tensor [s, b, n, n] -- residual mixing matrix"
+        - "h_post: Tensor [s, b, n] -- expansion weights"
+      description: "Full mHC forward: compute Sinkhorn-projected mappings, aggregate n-stream to 1-stream, return h_res and h_post for downstream apply"
+    config_fields_used:
+      - field_name: enable_hyper_connections
+        config_class: TransformerConfig
+        usage_description: "Enable hyper connection modules (replaces simple residual add)"
+      - field_name: num_residual_streams
+        config_class: TransformerConfig
+        usage_description: "Number of residual streams (n)"
+      - field_name: mhc_sinkhorn_iterations
+        config_class: TransformerConfig
+        usage_description: "Number of Sinkhorn normalization iterations"
+      - field_name: mhc_init_gating_factor
+        config_class: TransformerConfig
+        usage_description: "Initial value for alpha_pre/post/res gating factors"
+    submodule_slots: []
+    weight_params:
+      - param_name: mapping_proj.weight
+        shape_hint: "[n^2 + 2n, n*C]"
+        dtype: bfloat16
+      - param_name: alpha_pre
+        shape_hint: "[1]"
+        dtype: float32
+      - param_name: alpha_post
+        shape_hint: "[1]"
+        dtype: float32
+      - param_name: alpha_res
+        shape_hint: "[1]"
+        dtype: float32
+      - param_name: bias
+        shape_hint: "[n^2 + 2n]"
+        dtype: float32
+
+  ffn:
+    found: true
+    class_name: MLP
+    source_file: megatron/core/transformer/mlp.py
+    base_classes:
+      - MegatronModule
+    init_signature:
+      params:
+        - name: linear_fc1
+          type_hint: TELayerNormColumnParallelLinear
+          default_value: None
+          description: "Gate + Up projection (when gated_linear_unit=True)"
+        - name: linear_fc2
+          type_hint: TERowParallelLinear
+          default_value: None
+          description: "Down projection"
+        - name: activation_func
+          type_hint: Callable
+          default_value: None
+          description: "Activation function (default F.gelu or F.silu for SwiGLU)"
+    forward_signature:
+      inputs:
+        - name: hidden_states
+          type_hint: Tensor
+          description: "Input hidden states [s, b, h]"
+      outputs:
+        - "output: Tensor [s, b, h]"
+        - "bias: Optional[Tensor]"
+      description: "Standard SwiGLU MLP forward with gate-up projection and down projection"
+    config_fields_used:
+      - field_name: ffn_hidden_size
+        config_class: TransformerConfig
+        usage_description: "FFN intermediate size"
+      - field_name: gated_linear_unit
+        config_class: TransformerConfig
+        usage_description: "Enable SwiGLU-style gated MLP"
+      - field_name: add_bias_linear
+        config_class: TransformerConfig
+        usage_description: "Whether to add bias in linear layers"
+    submodule_slots:
+      - slot_name: linear_fc1
+        slot_type: ModuleSpec
+        default_class: TELayerNormColumnParallelLinear
+        is_replaceable: true
+      - slot_name: linear_fc2
+        slot_type: ModuleSpec
+        default_class: TERowParallelLinear
+        is_replaceable: true
+    weight_params:
+      - param_name: linear_fc1.weight
+        shape_hint: "[ffn_hidden_size, hidden_size] (gate+up stacked)"
+        dtype: bfloat16
+      - param_name: linear_fc2.weight
+        shape_hint: "[hidden_size, ffn_hidden_size]"
+        dtype: bfloat16
+
+  norm:
+    found: true
+    class_name: RMSNorm
+    source_file: megatron/core/transformer/torch_norm.py
+    base_classes:
+      - MegatronModule
+    init_signature:
+      params:
+        - name: weight
+          type_hint: nn.Parameter
+          default_value: None
+          description: "Scale parameter [hidden_size]"
+    forward_signature:
+      inputs:
+        - name: hidden_states
+          type_hint: Tensor
+          description: "Input tensor [s, b, h]"
+      outputs:
+        - "output: Tensor [s, b, h]"
+      description: "RMSNorm forward: x * (1 + weight) when zero_centered, else x * weight"
+    config_fields_used:
+      - field_name: normalization
+        config_class: TransformerConfig
+        usage_description: "Norm type: RMSNorm or LayerNorm"
+      - field_name: layernorm_epsilon
+        config_class: TransformerConfig
+        usage_description: "Epsilon for numerical stability"
+      - field_name: layernorm_zero_centered_gamma
+        config_class: TransformerConfig
+        usage_description: "Use zero-centered initialization (weight=0, forward=(1+weight)*x)"
+    submodule_slots: []
+    weight_params:
+      - param_name: weight
+        shape_hint: "[hidden_size]"
+        dtype: bfloat16
+
+config_classes:
+  mlatransformer_config:
+    class_name: MLATransformerConfig
+    source_file: megatron/core/transformer/transformer_config.py
+    parent_classes:
+      - TransformerConfig
+    fields:
+      - field_name: multi_latent_attention
+        type_hint: bool
+        default_value: "False"
+        description: "Enable Multi-Latent Attention (MLA)"
+        is_inherited: false
+      - field_name: q_lora_rank
+        type_hint: "Optional[int]"
+        default_value: "None"
+        description: "Q latent compression rank for MLA"
+        is_inherited: false
+      - field_name: kv_lora_rank
+        type_hint: "Optional[int]"
+        default_value: "None"
+        description: "KV latent compression rank for MLA"
+        is_inherited: false
+      - field_name: qk_nope_head_dim
+        type_hint: int
+        default_value: "0"
+        description: "Non-positional-encoding head dimension for decoupled RoPE"
+        is_inherited: false
+      - field_name: qk_rope_head_dim
+        type_hint: int
+        default_value: "0"
+        description: "RoPE head dimension for decoupled RoPE"
+        is_inherited: false
+      - field_name: v_head_dim
+        type_hint: int
+        default_value: "0"
+        description: "Value head dimension"
+        is_inherited: false
+      - field_name: hidden_size
+        type_hint: int
+        default_value: "0"
+        description: "Transformer hidden size"
+        is_inherited: true
+      - field_name: num_attention_heads
+        type_hint: int
+        default_value: "0"
+        description: "Number of attention heads"
+        is_inherited: true
+      - field_name: num_layers
+        type_hint: int
+        default_value: "0"
+        description: "Number of transformer layers"
+        is_inherited: true
+      - field_name: ffn_hidden_size
+        type_hint: int
+        default_value: "0"
+        description: "FFN intermediate size"
+        is_inherited: true
+      - field_name: enable_hyper_connections
+        type_hint: bool
+        default_value: "False"
+        description: "Enable Multi-Head Hyper-Connections (mHC)"
+        is_inherited: false
+      - field_name: num_residual_streams
+        type_hint: int
+        default_value: "4"
+        description: "Number of residual streams for mHC"
+        is_inherited: false
+      - field_name: mhc_sinkhorn_iterations
+        type_hint: int
+        default_value: "20"
+        description: "Number of Sinkhorn iterations for mHC"
+        is_inherited: false
+      - field_name: mhc_init_gating_factor
+        type_hint: float
+        default_value: "0.01"
+        description: "Initial gating factor for mHC alpha parameters"
+        is_inherited: false
+      - field_name: num_moe_experts
+        type_hint: "Optional[int]"
+        default_value: "None"
+        description: "Number of MoE experts"
+        is_inherited: true
+      - field_name: moe_layer_freq
+        type_hint: "Optional[Union[int, List[int]]]"
+        default_value: "None"
+        description: "Frequency of MoE layers (int or per-layer pattern)"
+        is_inherited: true
+      - field_name: moe_router_topk
+        type_hint: int
+        default_value: "2"
+        description: "Top-K value for MoE routing"
+        is_inherited: true
+      - field_name: moe_shared_expert_intermediate_size
+        type_hint: "Optional[int]"
+        default_value: "None"
+        description: "Shared expert FFN intermediate size"
+        is_inherited: true

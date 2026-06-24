@@ -1,0 +1,195 @@
+# hf_analysis.yaml complete example -- LLM (DeepSeek-V3)
+# Supersedes model_spec.yaml (per D-04). For Phase 0 reference, not an actual runtime artifact.
+
+model_category: llm
+candidate_family: deepseek_v3
+hf_reference_path: /path/to/DeepSeek-V3-candidate
+candidate_match_reason: "README explicitly states based on DeepSeek-V3"
+has_chat_template: false
+
+# New fields (superseding model_spec.yaml)
+low_confidence_candidate: false
+fp32_modules:
+  strict_fp32: []
+  non_strict_fp32: []
+behavior_modifications: []
+generation_constraints: []
+config_precision_delta: []
+
+components:
+  embedding:
+    diff: same
+    strategy: reuse_ref
+    hf_class: inline
+    hf_file: modeling_deepseek.py
+    hf_line: 1344
+    structural_tags: [untied, padding_idx]
+
+  positional_encoding:
+    diff: same
+    strategy: reuse_ref
+    hf_class: DeepseekV3YarnRotaryEmbedding
+    hf_file: modeling_deepseek.py
+    hf_line: 282
+    structural_tags: [yarn, factor=40, mscale=1.0, decoupled_rope]
+
+  attention:
+    diff: differs
+    strategy: adapt_ref
+    delta:
+      - "q_lora_rank: 1536 (new) -> absent (candidate lacks)"
+      - "v_head_dim: 128 (new) -> 96 (candidate)"
+    hf_class: DeepseekV3Attention
+    hf_file: modeling_deepseek.py
+    hf_line: 630
+    structural_tags: [mla, q_lora_rank=1536, kv_lora_rank=512,
+                      qk_nope_head_dim=128, qk_rope_head_dim=64,
+                      v_head_dim=128, decoupled_rope]
+
+  attention_norm:
+    diff: same
+    strategy: reuse_ref
+    hf_class: DeepseekV3RMSNorm
+    hf_file: modeling_deepseek.py
+    hf_line: 668
+    structural_tags: [latent_norm, on_q_compressed, on_kv_compressed]
+
+  flash_attention:
+    diff: same
+    strategy: reuse_ref
+    hf_class: DeepseekV3FlashAttention2
+    hf_file: modeling_deepseek.py
+    hf_line: 860
+    structural_tags: [flash_attn2, v_head_dim_padding]
+
+  ffn:
+    diff: same
+    strategy: reuse_ref
+    hf_class: DeepseekV3MLP
+    hf_file: modeling_deepseek.py
+    hf_line: 386
+    structural_tags: [swiglu, gate_proj, up_proj, down_proj, silu]
+
+  moe_gate:
+    diff: differs
+    strategy: adapt_ref
+    delta:
+      - "n_routed_experts: 256 (new) -> 64 (candidate)"
+      - "routed_scaling_factor: 2.5 (new) -> 1.0 (candidate)"
+    hf_class: MoEGate
+    hf_file: modeling_deepseek.py
+    hf_line: 412
+    structural_tags: [sigmoid, noaux_tc, e_score_correction_bias,
+                      group_limited_topk, n_group=8, topk_group=4,
+                      norm_topk_prob, routed_scaling_factor=2.5]
+
+  moe_experts:
+    diff: same
+    strategy: reuse_ref
+    hf_class: DeepseekV3MLP
+    hf_file: modeling_deepseek.py
+    hf_line: 386
+    same_class_as: ffn
+    structural_tags: [moe_intermediate_size=2048, n_routed_experts=256]
+
+  moe_shared_experts:
+    diff: same
+    strategy: reuse_ref
+    hf_class: DeepseekV3MLP
+    hf_file: modeling_deepseek.py
+    hf_line: 526
+    same_class_as: ffn
+    structural_tags: [n_shared_experts=1, always_active]
+
+  moe_layer:
+    diff: same
+    strategy: reuse_ref
+    hf_class: DeepseekV3MoE
+    hf_file: modeling_deepseek.py
+    hf_line: 493
+    structural_tags: [gate_plus_experts_plus_shared, ep_size_aware]
+
+  norm:
+    diff: same
+    strategy: reuse_ref
+    hf_class: DeepseekV3RMSNorm
+    hf_file: modeling_deepseek.py
+    hf_line: 94
+    structural_tags: [rms_norm, pre_norm, eps=1e-6]
+
+  decoder_layer:
+    diff: differs
+    strategy: adapt_ref
+    delta:
+      - "dense_first_k: 3 (new) -> 1 (candidate)"
+    hf_class: DeepseekV3DecoderLayer
+    hf_file: modeling_deepseek.py
+    hf_line: 1134
+    structural_tags: [pre_norm, residual, dense_first_k=3, moe_layer_freq=1]
+
+  # MTP field name convention: num_nextn_predict_layers is the original HF config.json field name, used for Phase 0 identification;
+  # mtp_num_layers is the LoongForge config dataclass field name, used for Phase 1 code generation. The two must not be mixed.
+  mtp:
+    diff: absent_in_hf
+    hf_config_field: num_nextn_predict_layers
+    omni_config_field: mtp_num_layers
+    strategy: new_impl
+    note: "HF code has no MTP implementation. Phase 0 records this as new_impl; Phase 1 may override final_strategy to reuse_megatron after reading Megatron/Omni MTP support."
+
+  lm_head:
+    diff: same
+    strategy: reuse_ref
+    hf_class: inline
+    hf_file: modeling_deepseek.py
+    hf_line: 1496
+    structural_tags: [no_bias, untied]
+
+  model:
+    diff: same
+    strategy: reuse_ref
+    hf_class: DeepseekV3Model
+    hf_file: modeling_deepseek.py
+    hf_line: 1340
+
+  causal_lm:
+    diff: same
+    strategy: reuse_ref
+    hf_class: DeepseekV3ForCausalLM
+    hf_file: modeling_deepseek.py
+    hf_line: 1489
+
+  config:
+    diff: differs
+    strategy: adapt_ref
+    delta:
+      - "Added q_lora_rank / kv_lora_rank / qk_nope_head_dim / qk_rope_head_dim / v_head_dim"
+      - "moe_layer_freq supports both int and list formats"
+    hf_class: DeepseekV3Config
+    hf_file: configuration_deepseek.py
+    hf_line: 11
+    structural_tags: [text_config_nested=false]
+
+novel_modules: []
+
+traps:
+  - "moe_layer_freq=1 means every layer except the first dense_first_k=3 layers is MoE"
+  - "e_score_correction_bias participates in score calculation; this field must be preserved in config"
+  - "MTP absent in HF code is normal -- Omni implements MTP independently via Megatron"
+
+special_features:
+  routing_bias:
+    hf_key: e_score_correction_bias
+    desc: "noaux_tc routing load balancing correction bias, dynamically updated during inference"
+
+weight_structure:
+  total_keys: 291
+  components:
+    llm:
+      key_count: 241
+      sample_keys:
+        - "model.layers.0.self_attn.q_a_proj.weight"
+        - "model.layers.0.mlp.gate_proj.weight"
+        - "model.embed_tokens.weight"
+        - "lm_head.weight"
+      naming_pattern: "model.layers.{i}.{module}.{param}"
+      index_range: "model.layers.0 ~ model.layers.60"

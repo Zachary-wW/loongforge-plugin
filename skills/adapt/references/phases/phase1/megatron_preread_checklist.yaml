@@ -1,11 +1,16 @@
 # Phase 1 Megatron architecture pre-read checklist.
 # Phase 1 Step 1.5 reads this before strategy decisions.
 
-version: 1
+version: 2
 purpose: >
   Build a working mental model of how Megatron assembles components before Phase 1
   makes final_strategy decisions. This prevents generated Omni code from becoming
   architecturally incompatible with Megatron's spec-driven assembly.
+  For confidence=high/medium components, Megatron context is loaded from
+  reference_impl_analysis.yaml (already analyzed by Phase 0). Only confidence=low
+  components and gap components require direct Megatron source file reading
+  (Step 2c/2d). This checklist provides the ASSEMBLY FLOW context (spec_utils,
+  transformer_layer, transformer_config) that applies regardless of confidence level.
 
 required_reference:
   path: knowledge_base/schema/MEGATRON_COMPONENT_MAP.md
@@ -16,19 +21,70 @@ required_reference:
     - component reference map
     - extension patterns
 
+confidence_driven_reading:
+  # For each confidence level, defines the source and action for Megatron context.
+  # Confidence is determined by bridge_mapping.component_bridge[].confidence field.
+
+  high_confidence_components:
+    source: reference_impl_analysis.yaml modules section
+    action: >
+      Load module entry from reference_impl_analysis.yaml for the component's
+      Megatron class. Verify init_signature, forward_signature, and config_fields_used
+      are present and complete. No direct Megatron source reading needed.
+    when_to_downgrade: >
+      If the reference_impl_analysis.yaml entry for the component's Megatron class is
+      missing or incomplete (e.g. init_signature.params empty, forward_signature missing),
+      treat the component as confidence=low and perform full Step 2c reading.
+
+  medium_confidence_components:
+    source: reference_impl_analysis.yaml + targeted Megatron source
+    action: >
+      Load module entry from reference_impl_analysis.yaml for general context
+      (class structure, base_classes, submodule_slots). Then read only the Megatron
+      source sections related to behavioral_diff topics — e.g. if behavioral_diff
+      mentions q_lora_rank handling, read only the relevant forward() slice.
+    when_to_downgrade: >
+      If behavioral_diff topics require Megatron source sections not covered by the
+      module entry (e.g. interactions with other modules not documented in
+      reference_impl_analysis.yaml), perform full Step 2c reading for those sections.
+
+  low_confidence_components:
+    source: Direct Megatron source reading (full Step 2c)
+    action: >
+      Perform full Step 2c.1-2c.7 per existing protocol. Read the Megatron source
+      file(s) for the component's module, document init/forward/config interactions,
+      and record findings in strategy_plan.notes. This is the traditional deep-read path.
+
+  gap_components:
+    source: bridge_mapping.gaps[].phase1_guidance + HF source
+    action: >
+      No Megatron source reading (no module exists in Megatron for this component).
+      Read phase1_guidance from the bridge_mapping gap entry for design direction.
+      Read HF source for the gap component to understand its interface and behavior.
+      Proceed to Step 2d (gap module design).
+
 required_megatron_sources:
+  # These 3 files provide ASSEMBLY FLOW context needed regardless of confidence level.
+  # They document how Megatron's spec system assembles modules into a model — this
+  # knowledge is required for all components, even confidence=high ones.
+
   - path: <megatron_path>/megatron/core/transformer/spec_utils.py
+    always_required: true
     purpose: ModuleSpec — how specs define module trees
     reading_focus:
       - ModuleSpec class structure: module, params, submodules fields
       - build_module() function
+
   - path: <megatron_path>/megatron/core/transformer/transformer_layer.py
+    always_required: true
     purpose: How TransformerLayer dispatches to sub-modules
     reading_focus:
       - TransformerLayerSubmodules slots, including hyper connections and cross-attention
       - __init__ signature
       - forward signature
+
   - path: <megatron_path>/megatron/core/transformer/transformer_config.py
+    always_required: true
     purpose: Config fields that control component behavior
     reading_focus:
       - TransformerConfig key fields for attention, MoE, MTP, and hyper-connections
@@ -56,6 +112,10 @@ reading_protocol:
   - Note which config fields control which behavior.
   - Note which submodule slots each component exposes.
   - Note how multiacc_modules is used.
+  - For confidence=high components, verify reference_impl_analysis.yaml entry completeness instead of reading Megatron source.
+  - For confidence=medium components, use reference_impl_analysis.yaml for context and only read targeted Megatron source for behavioral_diff topics.
+  - For confidence=low components, perform the full reading protocol as above.
+  - For gap components, skip Megatron source reading entirely; use phase1_guidance instead.
 
 completion_questions:
   - What submodule slots does TransformerLayerSubmodules have, including hyper connection and cross-attention slots?
@@ -63,7 +123,13 @@ completion_questions:
   - What is the difference between BaseModelConfig and BaseModelMLAConfig, and which TransformerConfig subclass does each inherit from?
   - How does a ModuleSpec tree map to actual module instantiation via build_module()?
   - What does config.experimental_attention_variant control, and what values does it support?
+  - For each confidence=high component: does reference_impl_analysis.yaml contain a complete entry for its Megatron class?
+  - For each confidence=medium component: which behavioral_diff topics require targeted Megatron source reading?
+  - For each gap component: what is the phase1_guidance direction?
 
 completion_rule: >
   Step 1.5 is complete only when the agent can answer every completion question
-  from memory. If not, re-read the relevant source/reference sections before Step 2.
+  from memory, INCLUDING the confidence-level-specific questions. For confidence=high,
+  verify reference_impl_analysis.yaml entries. For confidence=low, verify Megatron
+  source reading. For gap, verify phase1_guidance was read. For confidence=medium,
+  verify both reference_impl_analysis.yaml context and targeted source reading.

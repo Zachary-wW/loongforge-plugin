@@ -50,12 +50,19 @@ model:
 
 artifacts:
   model_spec_path: <from phase0_output>
+  bridge_mapping_path: <from phase0_output, primary input for Phase 1>
   reference_contract_path: <from phase0_output or null>
   wip_analysis_path: <from phase0_output or null>
   generated_files:
     - loongforge/models/foundation/<family>/...
     - configs/models/<family>/...
     - examples/<model>/...
+  generated_loongforge_files:
+    - loongforge/models/foundation/<family>/...
+    - configs/models/<family>/...
+    - examples/<model>/...
+  generated_megatron_files:
+    - megatron/core/transformer/...
   example_pretrain_script: examples/<model>/pretrain/pretrain_<model>.sh
   phase1_verify_report_path: phases/phase1/phase1_verify_report.json
   phase1_alignment_path: phases/phase1/phase1_alignment.json
@@ -63,6 +70,14 @@ artifacts:
 
 strategy:
   overrides: {}
+  # Per-component override recording: Phase 0 preliminary strategy -> Phase 1 final strategy
+  # When a component's strategy changes from Phase 0 to Phase 1, record it here.
+  # Example:
+  #   component_name:
+  #     from: "phase0_strategy"   # e.g. reuse_megatron
+  #     to: "phase1_strategy"     # e.g. wrap_megatron
+  #     reason: "..."             # e.g. "Megatron base class lacks config field for X"
+  strategy_overrides: {}
   notes: []
   contract_preflight:
     status: passed|skipped
@@ -81,6 +96,7 @@ strategy:
 
 checks:
   model_spec_loaded: true
+  bridge_mapping_consumed: true
   strategy_plan_complete: true
   contract_preflight_passed: true|null
   all_required_components_framework_native: true|null
@@ -92,6 +108,9 @@ checks:
   forward_alignment_passed: true
   trainability_verified: true
   behavior_alignment_passed: true  # true / false / skipped when behavior_modifications is empty
+  hf_sanity_run_passed: true
+  example_script_dry_run_passed: true
+  perf_lint_executed: true
 
 validator:
   name: phase1-verify
@@ -103,6 +122,8 @@ validator:
     omni_loss: 0.0
     loss_diff: 0.0
     parameter_update_verified: true
+    hf_sanity_run_passed: true
+    example_script_dry_run_passed: true
   commands: []
   logs: []
   artifacts: []

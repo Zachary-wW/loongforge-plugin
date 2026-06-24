@@ -20,6 +20,13 @@ code_paths:
   model: <path>
   init: <path>
 
+megatron_code_paths:
+  # Paths to Megatron-side files generated or modified during adaptation.
+  # Only populated when Phase 1 generated Megatron files.
+  <field>: <megatron_path or # Phase 1 not complete, to be supplemented>
+  # Example:
+  # experimental_attention_variant_dsa: megatron/core/transformer/experimental_attention_variant/dsa.py
+
 traps:
   - field: <field1>
     detail: >

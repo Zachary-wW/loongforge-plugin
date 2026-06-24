@@ -1,0 +1,355 @@
+# bridge_mapping.yaml example -- DS V4 (motivating case study)
+# Demonstrates component_bridge with weight_map, gaps for novel components,
+# and validator_requirements. Weight_map entries derived from ground truth
+# deepseek_v4_convert.yaml name_map.
+# For Phase 0 reference, not an actual runtime artifact.
+
+model: deepseek_v4
+hf_source: modeling_deepseek_v4.py
+megatron_family: deepseek_v3
+
+component_bridge:
+  - hf: embedding
+    megatron: [Embedding]
+    strategy: reuse_ref
+    confidence: high
+    weight_map:
+      - hf: embed_tokens.weight
+        megatron: embedding.word_embeddings.weight
+        shape_hint: "[vocab_size, hidden_size]"
+        reshape_required: ""
+      - hf: lm_head.weight
+        megatron: output_layer.weight
+        shape_hint: "[vocab_size, hidden_size]"
+        reshape_required: "untied, no transpose"
+    behavioral_diff: []
+    delta: []
+
+  - hf: positional_encoding
+    megatron: [RotaryEmbedding]
+    strategy: adapt_ref
+    confidence: medium
+    weight_map: null  # RoPE is computed, not stored as weights
+    behavioral_diff:
+      - topic: "YaRN RoPE vs standard RoPE"
+        hf: "DeepseekV4YarnRotaryEmbedding with factor=40, mscale=1.0, decoupled RoPE"
+        megatron: "RotaryEmbedding with rope_type=yarn, rotary_scaling_factor, beta_fast, beta_slow"
+        impact: medium
+        strategy: "Configure MLATransformerConfig with yarn RoPE params; Megatron already supports YaRN"
+    delta:
+      - "YaRN scaling factor and mscale parameters differ from candidate"
+
+  - hf: attention
+    megatron: [MLASelfAttention]
+    strategy: adapt_ref
+    confidence: medium
+    weight_map:
+      # Derived from GT deepseek_v4_convert.yaml name_map:
+      # huggingface: attn.wq_a -> attention.q_down -> mcore: self_attention.linear_q_down_proj
+      - hf: self_attn.q_a_proj.weight
+        megatron: self_attention.linear_q_down_proj.weight
+        shape_hint: "[q_lora_rank, hidden_size]"
+        reshape_required: "fp8_extra=true, ignore_tp=true"
+      # huggingface: attn.wq_b -> attention.q_up -> mcore: self_attention.linear_q_up_proj
+      - hf: self_attn.q_b_proj.weight
+        megatron: self_attention.linear_q_up_proj.weight
+        shape_hint: "[num_heads * (qk_nope_head_dim + qk_rope_head_dim), q_lora_rank]"
+        reshape_required: "fp8_extra=true"
+      # huggingface: attn.q_norm -> attention.q_up_layernorm -> mcore: self_attention.q_layernorm
+      - hf: self_attn.q_a_layernorm.weight
+        megatron: self_attention.q_layernorm.weight
+        shape_hint: "[q_lora_rank]"
+        reshape_required: "extra=true"
+      # huggingface: attn.wkv -> attention.kv_down -> mcore: self_attention.linear_kv_proj
+      - hf: self_attn.kv_a_proj_with_mqa.weight
+        megatron: self_attention.linear_kv_proj.weight
+        shape_hint: "[kv_lora_rank + qk_rope_head_dim, hidden_size]"
+        reshape_required: "fp8_extra=true, fp8_ignore_tp=true"
+      # huggingface: attn.kv_norm -> attention.kv_norm -> mcore: self_attention.kv_layernorm
+      - hf: self_attn.kv_a_layernorm.weight
+        megatron: self_attention.kv_layernorm.weight
+        shape_hint: "[kv_lora_rank + qk_rope_head_dim]"
+        reshape_required: "extra=true"
+      # huggingface: attn.wo_a -> attention.wo_a -> mcore: self_attention.linear_o_group_proj
+      # (is_direct_name=true in GT, bare Parameter stores TP-local output groups)
+      - hf: self_attn.wo_a.weight
+        megatron: self_attention.linear_o_group_proj.weight
+        shape_hint: "[num_groups, v_head_dim]"
+        reshape_required: "is_direct_name, tp_dim=0 (TP-local)"
+      # huggingface: attn.wo_b -> attention.wo_b -> mcore: self_attention.linear_proj
+      - hf: self_attn.wo_b.weight
+        megatron: self_attention.linear_proj.weight
+        shape_hint: "[hidden_size, num_heads * v_head_dim]"
+        reshape_required: "fp8_extra=true"
+    behavioral_diff:
+      - topic: "CSA/HCA indexer absence"
+        hf: "DeepseekV4Attention uses CSA/HCA indexer for sparse attention selection"
+        megatron: "MLASelfAttention core_attention is standard DotProductAttention -- no indexer slot"
+        impact: critical
+        strategy: "New DSAttention module needed with DSAIndexer sub-module (see gap G1)"
+      - topic: "Compressor within attention"
+        hf: "DeepseekV4Attention has compressor sub-module (wkv, wgate, ape, norm)"
+        megatron: "MLASelfAttention has no compressor slot"
+        impact: high
+        strategy: "Compressor needs to be added to DSAttention or as a separate sub-module"
+      - topic: "Grouped output projection (wo_a)"
+        hf: "wo_a is a bare Parameter with TP-local storage, not a standard Linear"
+        megatron: "linear_o_group_proj -- no standard Megatron equivalent; custom Parameter"
+        impact: high
+        strategy: "Implement as nn.Parameter in model-specific DSAttention, not via ModuleSpec"
+    delta:
+      - "core_attention: DotProductAttention -> DSAttention (indexer + compressor + core)"
+      - "linear_o_group_proj: new grouped output projection (bare Parameter)"
+
+  - hf: ffn
+    megatron: [MLP]
+    strategy: reuse_ref
+    confidence: high
+    weight_map:
+      # huggingface: gate_proj/up_proj/down_proj -> mcore: linear_fc1/linear_fc2
+      - hf: mlp.gate_proj.weight
+        megatron: linear_fc1.weight
+        shape_hint: "[ffn_hidden_size, hidden_size]"
+        reshape_required: "transpose_mlp_dense=true"
+      - hf: mlp.up_proj.weight
+        megatron: linear_fc1.weight
+        shape_hint: "[ffn_hidden_size, hidden_size]"
+        reshape_required: "gate+up stacked in linear_fc1"
+      - hf: mlp.down_proj.weight
+        megatron: linear_fc2.weight
+        shape_hint: "[hidden_size, ffn_hidden_size]"
+        reshape_required: "transpose_mlp_dense=true"
+    behavioral_diff: []
+    delta: []
+
+  - hf: moe_gate
+    megatron: [TopKRouter]
+    strategy: adapt_ref
+    confidence: medium
+    weight_map:
+      # huggingface: ffn.gate -> mcore: mlp.router
+      - hf: gate.weight
+        megatron: mlp.router.weight
+        shape_hint: "[num_experts, hidden_size]"
+        reshape_required: ""
+      # huggingface: ffn.gate.bias -> mcore: mlp.router.expert_bias
+      - hf: gate.bias
+        megatron: mlp.router.expert_bias
+        shape_hint: "[num_experts]"
+        reshape_required: "is_direct_name=true"
+      # huggingface: ffn.gate.tid2eid -> mcore: mlp.router.tid2eid
+      - hf: gate.tid2eid
+        megatron: mlp.router.tid2eid
+        shape_hint: "[vocab_size, topk]"
+        reshape_required: "is_direct_name=true, ignore_tp=true"
+    behavioral_diff:
+      - topic: "Hash-based routing"
+        hf: "DeepseekV4MoEGate supports hash routing via tid2eid lookup table for first N layers"
+        megatron: "TopKRouter._hash_routing: when moe_n_hash_layers > 0 and layer_number <= threshold, uses tid2eid for expert selection"
+        impact: medium
+        strategy: "Configure moe_n_hash_layers and moe_router_enable_expert_bias in config; TopKRouter already implements _hash_routing"
+      - topic: "Expert bias (e_score_correction_bias)"
+        hf: "DeepseekV4MoEGate has e_score_correction_bias participating in score calculation"
+        megatron: "TopKRouter.expert_bias register_buffer with enable_expert_bias config flag"
+        impact: medium
+        strategy: "Set moe_router_enable_expert_bias=True; expert_bias loaded from gate.bias in convert YAML"
+    delta:
+      - "Hash routing extension: moe_n_hash_layers, tid2eid table"
+      - "Expert bias for noaux_tc load balancing"
+
+  - hf: moe_shared_experts
+    megatron: [SharedExpertMLP]
+    strategy: adapt_ref
+    confidence: high
+    weight_map:
+      # huggingface: ffn.shared_experts -> mcore: mlp.shared_experts
+      - hf: shared_experts.gate_proj.weight
+        megatron: mlp.shared_experts.linear_fc1.weight
+        shape_hint: "[shared_expert_intermediate_size, hidden_size]"
+        reshape_required: "fp8_extra=true"
+      - hf: shared_experts.up_proj.weight
+        megatron: mlp.shared_experts.linear_fc1.weight
+        shape_hint: "[shared_expert_intermediate_size, hidden_size]"
+        reshape_required: "gate+up stacked in linear_fc1"
+      - hf: shared_experts.down_proj.weight
+        megatron: mlp.shared_experts.linear_fc2.weight
+        shape_hint: "[hidden_size, shared_expert_intermediate_size]"
+        reshape_required: "fp8_extra=true"
+    behavioral_diff: []
+    delta: []
+
+  - hf: hyper_connection
+    megatron: [HyperConnectionModule]
+    strategy: adapt_ref
+    confidence: medium
+    weight_map:
+      # Derived from GT deepseek_v4_convert.yaml name_map:
+      # Attention-side hyper connection
+      - hf: hc_attn_fn
+        megatron: self_attention_hyper_connection.mapping_proj
+        shape_hint: "[n^2 + 2n, n*C]"
+        reshape_required: "ignore_tp=true"
+      - hf: hc_attn_base
+        megatron: self_attention_hyper_connection.bias
+        shape_hint: "[n^2 + 2n]"
+        reshape_required: "is_direct_name=true"
+      - hf: hc_attn_alpha_pre
+        megatron: self_attention_hyper_connection.alpha_pre
+        shape_hint: "[1]"
+        reshape_required: "is_direct_name=true"
+      - hf: hc_attn_alpha_post
+        megatron: self_attention_hyper_connection.alpha_post
+        shape_hint: "[1]"
+        reshape_required: "is_direct_name=true"
+      - hf: hc_attn_alpha_res
+        megatron: self_attention_hyper_connection.alpha_res
+        shape_hint: "[1]"
+        reshape_required: "is_direct_name=true"
+      # FFN-side hyper connection
+      - hf: hc_ffn_fn
+        megatron: mlp_hyper_connection.mapping_proj
+        shape_hint: "[n^2 + 2n, n*C]"
+        reshape_required: "ignore_tp=true"
+      - hf: hc_ffn_base
+        megatron: mlp_hyper_connection.bias
+        shape_hint: "[n^2 + 2n]"
+        reshape_required: "is_direct_name=true"
+      - hf: hc_ffn_alpha_pre
+        megatron: mlp_hyper_connection.alpha_pre
+        shape_hint: "[1]"
+        reshape_required: "is_direct_name=true"
+      - hf: hc_ffn_alpha_post
+        megatron: mlp_hyper_connection.alpha_post
+        shape_hint: "[1]"
+        reshape_required: "is_direct_name=true"
+      - hf: hc_ffn_alpha_res
+        megatron: mlp_hyper_connection.alpha_res
+        shape_hint: "[1]"
+        reshape_required: "is_direct_name=true"
+      # Head-level hyper connection (learned output contraction)
+      - hf: hc_head_fn
+        megatron: decoder.head_hyper_connection.hc_head_fn
+        shape_hint: "[n, n*h]"
+        reshape_required: "is_direct_name=true"
+      - hf: hc_head_base
+        megatron: decoder.head_hyper_connection.hc_head_base
+        shape_hint: "[n]"
+        reshape_required: "is_direct_name=true"
+      - hf: hc_head_scale
+        megatron: decoder.head_hyper_connection.hc_head_scale
+        shape_hint: "[1]"
+        reshape_required: "is_direct_name=true"
+    behavioral_diff:
+      - topic: "Learned output contraction (HyperHead)"
+        hf: "DeepseekV4HyperConnection has head-level output contraction via learned sigmoid-gated weighted sum"
+        megatron: "HyperHead class implements learned_output_contract with hc_head_fn/base/scale parameters"
+        impact: medium
+        strategy: "HyperHead already exists in Megatron; ensure layer_spec includes it in TransformerBlockSubmodules"
+    delta:
+      - "HyperHead output contraction at block boundary (new vs candidate)"
+
+  - hf: norm
+    megatron: [RMSNorm]
+    strategy: reuse_ref
+    confidence: high
+    weight_map:
+      # huggingface: attn_norm -> mcore: input_layernorm
+      - hf: input_layernorm.weight
+        megatron: input_layernorm.weight
+        shape_hint: "[hidden_size]"
+        reshape_required: ""
+      # huggingface: ffn_norm -> mcore: pre_mlp_layernorm
+      - hf: post_attention_layernorm.weight
+        megatron: pre_mlp_layernorm.weight
+        shape_hint: "[hidden_size]"
+        reshape_required: ""
+      # huggingface: norm (final) -> mcore: decoder.final_layernorm
+      - hf: norm.weight
+        megatron: decoder.final_layernorm.weight
+        shape_hint: "[hidden_size]"
+        reshape_required: "extra=true"
+    behavioral_diff: []
+    delta: []
+
+  - hf: decoder_layer
+    megatron: [TransformerLayer]
+    strategy: adapt_ref
+    confidence: medium
+    weight_map: null  # Layer is a container; no direct weights
+    behavioral_diff:
+      - topic: "Hyper connection slots in layer"
+        hf: "DeepseekV4DecoderLayer uses mHC for residual connections"
+        megatron: "TransformerLayer has self_attention_hyper_connection and mlp_hyper_connection slots (default IdentityOp)"
+        impact: medium
+        strategy: "Enable enable_hyper_connections=True in config; slots already exist in TransformerLayerSubmodules"
+    delta:
+      - "dense_first_k: 3 (DS V4) vs default 1"
+      - "mHC residual connections active"
+
+gaps:
+  - id: G1
+    component: csa_indexer
+    hf: DeepseekV4CSAIndexer
+    megatron: NEW
+    decision: "New module needed in Megatron experimental_attention_variant/"
+    impact: critical
+    phase1_guidance: "Implement CSA/HCA indexer as a new module under experimental_attention_variant/ based on HF DSAIndexer pattern and Megatron issue #4468 clues. The indexer selects sparse attention tokens via compressor (wkv, wgate, ape) and projects query weights. Must integrate into DSAttention as core_attention.indexer sub-module."
+
+  - id: G2
+    component: hash_router
+    hf: DeepseekV4HashRouter
+    megatron: NEW
+    decision: "New routing logic needed in Megatron Router"
+    impact: high
+    phase1_guidance: "Extend Megatron TopKRouter with hash-based routing via tid2eid lookup table. The community reference (Megatron-LM issue #4468) provides implementation clues. TopKRouter._hash_routing method already exists in the GT codebase -- may need to be back-ported to Megatron if not yet upstreamed."
+
+  - id: G3
+    component: clamped_swiglu
+    hf: DeepseekV4MLP (behavior_modification)
+    megatron: MLP (no clamp)
+    decision: "Behavior modification in Omni model-specific code"
+    impact: medium
+    phase1_guidance: "Add activation clamp in model-specific MLP code under loongforge/models/foundation/deepseek_v4/. Do NOT modify shared Megatron MLP -- clamp is model-specific and controlled by config field (e.g., activation_func_clamp_value). Validate with synthetic inputs exceeding the clamp threshold."
+
+validator_requirements:
+  - "Phase 1 must verify CSA/HCA indexer forward output shape matches HF -- indexer outputs selected token indices and attention weights"
+  - "Phase 2 must map all 100+ weight keys from deepseek_v4_convert.yaml -- every huggingface name_map entry must have a corresponding mcore mapping"
+  - "Phase 3 must verify loss diff < 1e-3 for both dense and MoE layers with hash routing enabled"
+  - "Phase 3 must verify hyper-connection residual flow matches HF: H_pre aggregation, H_post expansion, H_res residual mixing"
+
+implementation_contract:
+  required_integration_level: framework_extension
+  allow_shared_framework_changes: true
+  required_components:
+    - name: "CSA/HCA indexer module"
+      location: "megatron/core/transformer/experimental_attention_variant/"
+      type: "new_module"
+      integration: "ModuleSpec in DSAttentionSubmodules.indexer slot"
+    - name: "Compressor module"
+      location: "megatron/core/transformer/experimental_attention_variant/ or loongforge/models/common/"
+      type: "new_module"
+      integration: "Sub-module of DSAttention for KV compression"
+    - name: "Hash routing support"
+      location: "megatron/core/transformer/moe/router.py"
+      type: "framework_extension"
+      integration: "TopKRouter._hash_routing method with tid2eid buffer"
+    - name: "Grouped output projection (wo_a)"
+      location: "loongforge/models/foundation/deepseek_v4/"
+      type: "model_specific"
+      integration: "nn.Parameter in model-specific DSAttention, not via ModuleSpec"
+
+conversion_requirements:
+  total_weight_keys: 291
+  expert_weight_pattern: "model.layers.{i}.ffn.experts.{j}.{param}"
+  shared_expert_weight_pattern: "model.layers.{i}.ffn.shared_experts.{param}"
+  hyper_connection_weight_pattern: "model.layers.{i}.hc_{attn|ffn}_{param}"
+  fp8_projections: ["linear_q_down_proj", "linear_kv_proj", "linear_q_up_proj", "linear_proj"]
+  tp_dimension_overrides:
+    "attention.wo_a.weight": 0
+    "attention.wo_b.weight": 1
+
+phase3_reference_requirements:
+  requires_custom_reference_loader: false
+  requires_fp8_handling: true
+  requires_hash_router_state: true
+  requires_mhc_recompute: true

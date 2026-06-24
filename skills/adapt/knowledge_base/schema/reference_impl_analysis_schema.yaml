@@ -1,0 +1,102 @@
+# Schema template for phases/phase0/reference_impl_analysis.yaml (per D-18).
+#
+# This file documents the structure of the reference_impl_analysis.yaml output
+# artifact produced by Phase 0 Step 5 (megatron-reference-analyzer invocation).
+# All fields are mirrored from the ReferenceImplAnalysis Pydantic v2 model in
+# skills/adapt/lib/schema.py.
+#
+# The reference_impl_analysis captures existing Megatron module depth only:
+# class signatures, __init__ members, forward flow signatures, config fields,
+# and weight parameter names. It does NOT design or specify implementation
+# of new modules (per D-08).
+
+megatron_family: <family_name>          # REQUIRED — e.g. "deepseek_v3"
+source_repo: <url>                      # REQUIRED — repo URL
+source_ref: <branch_or_commit>         # Branch/ref, default "main"
+analysis_timestamp: <ISO_8601>          # When analysis was performed
+
+# --- Module analysis (per D-06) -------------------------------------------
+# Key is the Megatron class name (e.g. "MLASelfAttention").
+# Each entry captures the module's interface and structure at existing-module depth.
+
+modules:
+  MLASelfAttention:                     # Example: MLA Self-Attention
+    class_name: MLASelfAttention        # REQUIRED
+    source_file: megatron/core/transformer/hybrid_mla_attention.py  # REQUIRED
+    base_classes:                       # Parent classes
+      - ParallelAttention
+
+    init_signature:                      # __init__ parameters
+      params:
+        - name: config                  # REQUIRED
+          type_hint: MLAConfig
+          default_value: null
+          description: "MLA attention config"
+        - name: q_lora_rank
+          type_hint: int
+          default_value: "1536"
+          description: "Query LoRA rank"
+        - name: linear_q_down_proj
+          type_hint: ColumnParallelLinear
+          default_value: null
+          description: "Query down-projection layer"
+        - name: linear_kv_proj
+          type_hint: ColumnParallelLinear
+          default_value: null
+          description: "Key-Value projection layer"
+
+    forward_signature:                   # forward() signature
+      inputs:
+        - name: hidden_states           # REQUIRED
+          type_hint: Tensor
+          default_value: null
+          description: "Input hidden states"
+      outputs:
+        - context
+        - context_mask
+      description: "MLA forward pass"
+
+    config_fields_used:                 # Config fields referenced by this module
+      - field_name: q_lora_rank
+        config_class: MLAConfig
+        usage_description: "query LoRA compression rank"
+      - field_name: kv_lora_rank
+        config_class: MLAConfig
+        usage_description: "key-value LoRA compression rank"
+
+    submodule_slots:                     # Replaceable sub-modules
+      - slot_name: core_attention
+        slot_type: ParallelAttention
+        default_class: CoreAttention
+        is_replaceable: true
+      - slot_name: linear_q_proj
+        slot_type: Linear
+        default_class: ColumnParallelLinear
+        is_replaceable: true
+
+    weight_params:                       # Weight parameters in this module
+      - param_name: linear_q_proj.weight
+        shape_hint: "1536x4096"
+        dtype: float16
+      - param_name: linear_kv_proj.weight
+        shape_hint: "512x7168"
+        dtype: float16
+
+# --- Config class analysis ------------------------------------------------
+# Key is the config class name (e.g. "MLAConfig").
+
+config_classes:
+  MLAConfig:
+    class_name: MLAConfig               # REQUIRED
+    source_file: megatron/core/transformer/hybrid_mla_attention.py  # REQUIRED
+    fields:
+      - field_name: q_lora_rank
+        type_hint: int
+        default_value: "1536"
+        description: "Query LoRA rank"
+      - field_name: kv_lora_rank
+        type_hint: int
+        default_value: "512"
+        description: "Key-Value LoRA rank"
+    parent_classes:
+      - TransformerConfig

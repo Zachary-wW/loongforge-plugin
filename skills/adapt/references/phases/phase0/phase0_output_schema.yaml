@@ -1,0 +1,100 @@
+# Schema template for phases/phase0_output.yml
+# Updated for three-document output structure (per D-01, D-05, D-16)
+# Legacy model_spec.yaml references are deprecated. Downstream phases should
+# read bridge_mapping.yaml as the primary Phase 0 artifact.
+
+phase: 0
+status: passed | human_needed
+summary: "<one-sentence result>"
+
+step_gate:
+  mandatory_steps_complete: true
+steps:
+  step1:
+    status: passed
+    evidence: "resolved HF source files"
+  step2:
+    status: passed
+    evidence: "scanned HF checkpoint directory"
+  step3:
+    status: passed
+    evidence: "phases/phase0/hf_analysis.yaml"
+  step4:
+    status: passed
+    evidence: "weight_structure appended to hf_analysis.yaml"
+  step5:
+    status: passed
+    evidence: "phases/phase0/reference_impl_analysis.yaml"
+  step5_5:
+    status: passed
+    evidence: "phases/phase0/bridge_mapping.yaml"
+  step6:
+    status: passed
+    evidence: "quality loop passed (round N/3)"
+  step7:
+    status: passed | skipped
+    evidence: "reference_contract fields absorbed into bridge_mapping.yaml or explicit no-reference reason"
+  step8:
+    status: passed
+    evidence: "slice_report.json or explicit slicing skip reason"
+  step9:
+    status: passed
+    evidence: "phases/phase0_output.yml"
+
+source:
+  hf_ckpt_path: "<original HF checkpoint/model directory>"
+  hf_modeling_path: "<resolved modeling_*.py path>"
+  hf_transformers_path: "<optional transformers source path or null>"
+  megatron_path: "<optional Megatron source path or null>"
+  modeling_source: "local|user_specified|transformers_tree|transformers_library|config_inferred|inherited_from"
+  resolved_source_files:
+    modeling: "<path>"
+    configuration: "<path|null>"
+    processor: "<path|null>"
+    image_processor: "<path|null>"
+
+model:
+  model_name: "<name>"
+  model_type: "llm|vlm|diffusion"
+  candidate_family: "<family>"
+  candidate_match_reason: "<reason>"
+  megatron_family: "<family or 'unknown'>"
+
+artifacts:
+  hf_analysis_path: "phases/phase0/hf_analysis.yaml"
+  reference_impl_analysis_path: "phases/phase0/reference_impl_analysis.yaml"
+  bridge_mapping_path: "phases/phase0/bridge_mapping.yaml"
+  gap_decisions_path: "phases/phase0/gap_decisions.md"
+  slice_report_path: "phases/phase0/slice_report.json|null"
+
+slice:
+  enabled: "true|false"
+  performed: "true|false"
+  reason: "disabled|layer_count_le_16|success"
+  hf_ckpt_path: "<sliced HF checkpoint path when performed, otherwise original hf_ckpt_path>"
+  config_path: "<sliced config path when performed, otherwise original config.json path>"
+  report_path: "phases/phase0/slice_report.json|null"
+
+checks:
+  hf_analysis_exists: true
+  components_non_empty: true
+  weight_structure_non_empty: true
+  reference_impl_analysis_exists: true
+  bridge_mapping_exists: true
+  bridge_mapping_component_bridge_non_empty: true
+  bridge_mapping_gaps_have_guidance: true
+  source_resolved: true
+  slice_hf_ckpt_path_resolved: true
+  slice_config_path_resolved: true
+  mtp_preserved_when_present: "true|null"
+
+# --- Backward Compatibility Note ---
+# Legacy model_spec.yaml references are deprecated. The field model_spec_path
+# has been replaced by hf_analysis_path. The field reference_contract_path has
+# been replaced by the absorbed fields in bridge_mapping.yaml (per D-05).
+# Downstream phases should read bridge_mapping.yaml as the primary Phase 0
+# artifact for component mapping, weight maps, and gap information.
+# reference_contract_extracted has been replaced by
+# bridge_mapping_gaps_have_guidance and the presence of
+# implementation_contract/conversion_requirements/phase3_reference_requirements
+# in bridge_mapping.yaml.

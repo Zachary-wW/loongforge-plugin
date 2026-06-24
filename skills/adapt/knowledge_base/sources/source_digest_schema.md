@@ -2,6 +2,55 @@
 
 > Phase 0 produces `run_dir/phases/phase0/model_spec.yaml` as its sole output. The `hf_file / hf_line` pointers
 > allow subsequent Phases to directly read HF source files from `hf_path` on demand, without pre-extracted caching.
+>
+> **NOTE (v2):** Phase 0 has been redesigned to produce three core deliverables:
+> `hf_analysis.yaml` (supersedes model_spec.yaml), `reference_impl_analysis.yaml`, and `bridge_mapping.yaml`.
+> See the "Phase 0 Output Changes (v2)" section below for details.
+
+---
+
+## Phase 0 Output Changes (v2)
+
+Phase 0 has been redesigned from a single-side HF analysis to a dual-reference bridge mapping architecture. The output artifacts have changed as follows:
+
+### Deprecated fields (still readable for backward compat)
+
+| Field | Status | Replacement |
+|-------|--------|-------------|
+| `model_spec_path` | **Deprecated** | `hf_analysis_path` |
+| `reference_contract_path` | **Deprecated** | Absorbed into `bridge_mapping_path` (per D-05) |
+
+### New fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `hf_analysis_path` | string (required) | Path to `phases/phase0/hf_analysis.yaml` -- supersedes `model_spec.yaml` (per D-04) |
+| `reference_impl_analysis_path` | string (required) | Path to `phases/phase0/reference_impl_analysis.yaml` -- Megatron/community-side module analysis (per D-18) |
+| `bridge_mapping_path` | string (required) | Path to `phases/phase0/bridge_mapping.yaml` -- component-by-component bridge mapping, the primary Phase 0 deliverable (per D-16) |
+| `gap_decisions_path` | string (required) | Path to `phases/phase0/gap_decisions.md` -- human-readable record of components that cannot be 1:1 mapped (per D-02) |
+
+### Phase 1 consumption change
+
+**Phase 1 should read `bridge_mapping.yaml` as the primary input**, not `model_spec.yaml` or `hf_analysis.yaml` alone. The bridge_mapping contains:
+- `component_bridge[]`: strategy, confidence, weight_map, behavioral_diff for each component
+- `gaps[]`: missing Megatron modules with impact level and phase1_guidance
+- `validator_requirements[]`: what downstream phases need to verify
+- `implementation_contract`: integration level and required new components
+
+Phase 1 may still read `hf_analysis.yaml` for detailed structural_tags and HF source pointers (hf_file, hf_line), and `reference_impl_analysis.yaml` for Megatron class signatures and submodule slots.
+
+### Output directory structure (v2)
+
+```
+run_dir/phases/phase0/
+  hf_analysis.yaml              (was model_spec.yaml -- per D-04)
+  reference_impl_analysis.yaml  (NEW -- per D-18)
+  bridge_mapping.yaml           (NEW, absorbs reference_contract.yml -- per D-05)
+  gap_decisions.md              (NEW -- per D-02)
+  slice_report.json             (retained -- per D-03)
+  attempts.jsonl                (optional, quality loop records)
+  sliced_hf/                    (optional, only when slicing performed)
+```
 
 ---
 

@@ -1,9 +1,13 @@
 # Phase 5 knowledge-base extraction rules.
 # Phase 5 Step 1 reads this before writing sources YAML, INDEX.md, or LOG.md.
+#
+# version: 2 — structural_tags source changed from model_spec.yaml to hf_analysis.yaml;
+#              code_paths source reads generated_loongforge_files + generated_megatron_files;
+#              added megatron_code_paths section; traps source includes bridge_mapping behavioral_diff.
 
-version: 1
+version: 2
 purpose: >
-  Extract reusable model-family knowledge from Phase 0-4 outputs and model_spec.yaml
+  Extract reusable model-family knowledge from Phase 0-4 outputs, hf_analysis.yaml, and bridge_mapping.yaml
   into knowledge_base/sources/<model_cat>/<family>.yaml, INDEX.md, and LOG.md.
 
 base_fields:
@@ -15,14 +19,16 @@ base_fields:
   hf_path: run_inputs.source.hf_ckpt_path
   model_name: run_inputs.options.model_name
   phase1_ok: phase1_output.status == "passed" when phase1_output exists
-  phase1_files: phase1_output.artifacts.generated_files when phase1_output exists
+  phase1_loongforge_files: phase1_output.artifacts.generated_loongforge_files when phase1_output exists
+  phase1_megatron_files: phase1_output.artifacts.generated_megatron_files when phase1_output exists
+  phase1_files: phase1_output.artifacts.generated_files when phase1_output exists  # legacy fallback when split lists absent
   phase2_ok: phase2_output.status == "passed" when phase2_output exists
   phase2_files: phase2_output.artifacts.generated_files when phase2_output exists
   phase3_status: phase3_output.status when phase3_output exists
   phase4_status: phase4_output.status when phase4_output exists
 
 structural_tags:
-  source: run_dir/phases/phase0/model_spec.yaml
+  source: run_dir/phases/phase0/hf_analysis.yaml (primary) or run_dir/phases/phase0/model_spec.yaml (legacy fallback)
   fields:
     has_mla:
       true_when:
@@ -65,24 +71,34 @@ structural_tags:
         large: vocab_size > 200000
       unknown_value: null
       unknown_comment: "# TODO: requires manual confirmation"
+  # When hf_analysis.yaml is absent (legacy Phase 0 output), fall back to reading
+  # from model_spec.yaml using the same true_when rules applied to model_spec.components[].structural_tags.
 
 diff_components:
   llm: Collect component keys under components where diff == differs.
   vlm: Collect keys where diff == differs under both components and vlm_components when present.
   diffusion: Collect keys where diff == differs under components and diffusion-specific sections when present.
+  # When bridge_mapping.yaml is present, also check bridge_mapping.component_bridge[].delta for additional diff items.
   empty_value: none
   output_format: comma-separated string for LOG.md Major diff components.
 
 traps:
   source_sections:
-    - model_spec.traps
-    - model_spec.special_features
+    - hf_analysis.traps                          # PRIMARY (v2)
+    - bridge_mapping.component_bridge[].behavioral_diff  # NEW (v2) -- high/critical impact entries become trap entries
+    - model_spec.traps                            # LEGACY fallback
+    - model_spec.special_features                 # LEGACY fallback
   string_rule:
     field: first word before the first space, or the first Chinese word when applicable
     detail: full original string, preserving original text
   special_features_rule:
     field: feature.hf_key
     detail: feature.desc
+  behavioral_diff_rule:
+    condition: behavioral_diff.impact in [high, critical]
+    field: behavioral_diff.topic
+    detail: "HF: <behavioral_diff.hf> / Megatron: <behavioral_diff.megatron>"
+    deduplication: skip when field matches an existing trap entry field
   empty_output: "traps: []"
   deduplication_key: field
 
@@ -127,6 +143,32 @@ code_paths:
           field: init
       fallback_rule: Other .py files under the diffusion family directory use filename without .py as field name.
 
+megatron_code_paths:
+  only_when: phase1_megatron_files is not empty
+  placeholder_when_missing: "# Phase 1 not complete or no Megatron files generated, to be supplemented"
+  categories:
+    llm:
+      source: phase1_megatron_files
+      match_rules:
+        - pattern: "megatron/core/transformer/*.py"
+          field: transformer_core
+        - pattern: "megatron/core/transformer/custom/*.py"
+          field: custom
+        - pattern: "megatron/models/*.py"
+          field: models
+      fallback_rule: >
+        Other .py files under megatron/ use the subdirectory path as the field name.
+        For example, megatron/core/transformer/experimental_attention_variant/dsa.py
+        maps to field: experimental_attention_variant_dsa.
+      fallback_example:
+        experimental_attention_variant_dsa: megatron/core/transformer/experimental_attention_variant/dsa.py
+    vlm:
+      inherits: llm
+      # VLM-specific Megatron paths follow the same rules as LLM
+    diffusion:
+      inherits: llm
+      # Diffusion-specific Megatron paths follow the same rules as LLM
+
 omni_reference:
   only_when: phase2_ok is true
   placeholder_when_missing: "# Phase 2 not complete, to be supplemented"
@@ -168,6 +210,7 @@ omni_reference:
 append_flow_rules:
   - if code_paths section does not exist, insert complete code_paths before traps using the model-category template.
   - if VLM code_paths exists but missing encoder, append encoder or encoder_N field.
+  - if megatron_code_paths section does not exist and phase1_megatron_files is not empty, insert complete megatron_code_paths after code_paths using the model-category template.
   - if omni_reference section does not exist, append complete omni_reference section at file end using the model-category template.
   - append new traps after deduplicating by field.
 

@@ -1,5 +1,9 @@
 # Schema template for phases/phase4_output.yml.
 # Phase 4 fills this after feature matrix compatibility validation.
+#
+# v2 additions: source.hf_analysis_path, source.bridge_mapping_path, checks.bridge_mapping_consumed
+# These fields are present only when Phase 0 v2 output (three-document) is available.
+# Legacy Phase 0 output (model_spec.yaml only) omits these fields.
 
 phase: 4
 status: passed | human_needed
@@ -35,6 +39,8 @@ source:
   hf_ckpt_path: "<phase0_output.source.hf_ckpt_path>"
   mcore_ckpt: "<phase2_output.artifacts.output_ckpt>"
   baseline_verify_report: "<phase3_output.artifacts.verify_report_path>"
+  hf_analysis_path: "<phase0_output.artifacts.hf_analysis_path>"     # NEW (v2) -- present when Phase 0 v2 output exists
+  bridge_mapping_path: "<phase0_output.artifacts.bridge_mapping_path>"  # NEW (v2) -- present when Phase 0 v2 output exists
 
 model:
   name: "<run_inputs.options.model_name>"
@@ -50,6 +56,7 @@ checks:
   applicable_runtime_passed: true
   non_runtime_rows_justified: true
   required_combinations_passed: true
+  bridge_mapping_consumed: true   # NEW (v2) -- true when bridge_mapping.yaml was read; absent for legacy runs
 
 single_switches:
   - category: parallel_strategy

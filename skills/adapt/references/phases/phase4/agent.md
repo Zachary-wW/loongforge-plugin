@@ -15,9 +15,39 @@ Read the following source files at phase start:
 |-------------|----------|-----------------|
 | `run_dir/run_inputs.yml` | Yes | `source.hf_ckpt_path`, `paths.omni_path`, `paths.megatron_path`, `options.model_name` |
 | `run_dir/phases/phase0_output.yml` | Yes | `model.model_type` (llm/vlm/diffusion), `model.candidate_family`, `source.hf_ckpt_path` |
+| `run_dir/phases/phase0/hf_analysis.yaml` (via `phase0_output.artifacts.hf_analysis_path`) | Yes (when present) | `model_category`, `components[].structural_tags`, `components[].diff` |
+| `run_dir/phases/phase0/bridge_mapping.yaml` (via `phase0_output.artifacts.bridge_mapping_path`) | Yes (when present) | `component_bridge[].hf`, `component_bridge[].megatron`, `component_bridge[].strategy`, `gaps[]` |
 | `run_dir/phases/phase2_output.yml` | Yes | `artifacts.output_ckpt`, `artifacts.generated_files` |
 | `run_dir/phases/phase3_output.yml` | Yes | `status`, `artifacts.verify_report_path`, `artifacts.run_real_weight_script`, `artifacts.mock_input_path`, `checks`, `validator` |
 
+> **Legacy fallback note**: When `hf_analysis_path` or `bridge_mapping_path` is absent (legacy Phase 0 output), fall back to `model_spec.yaml` for the corresponding fields. This fallback will be removed in a future version.
+
+## Loop Engineering Hooks
+
+> These steps apply ONLY when `run_inputs.yml` contains a `repos:` block (loop-engineering mode).
+> Skip entirely for legacy invocations that do not provide `repos:`.
+
+### Pre-Edit: Branch Creation
+
+Before writing any files to the target repositories:
+
+1. Read `run_inputs.yml` and check if `repos:` block is present.
+2. If present, invoke `gh_helper.create_branch(owner_repo, branch="adapt/<run_id>/phase4/attempt<K>", base=<base_ref>)` on **both** target repos:
+   - **LoongForge repo**: use `repos.loongforge.url` for `owner_repo` and `repos.loongforge.ref` for `base_ref`.
+   - **Megatron repo**: use `repos.megatron.url` for `owner_repo` and `repos.megatron.ref` for `base_ref`.
+3. Record both branch names in `phases/phase4/attempts.jsonl` as `kind="branch"` entries (one per repo).
+4. If branch creation fails (already exists or name conflict), check `gh_helper.find_by_idempotency_key` for an existing artifact and reattach rather than creating a duplicate.
+
+### Post-Edit: PR Submission
+
+After writing all phase artifacts and before running the validator:
+
+1. If `repos:` block is present, invoke `gh_helper.open_pr(...)` on **both** repos:
+   - **LoongForge repo**: `gh_helper.open_pr(owner_repo, head=<branch>, base=<base_ref>, run_id=<run_id>, phase=4, attempt=<K>, kind="base")` with templated title/body.
+   - **Megatron repo**: `gh_helper.open_pr(owner_repo, head=<branch>, base=<base_ref>, run_id=<run_id>, phase=4, attempt=<K>, kind="base")`. The Megatron PR body MUST pin the LoongForge commit SHA (VAL-05: `loongforge_commit_sha: <sha>`).
+2. Record both PR numbers and URLs in `phases/phase4_output.yml` under the `pr:` block.
+3. Merge **both** PRs via `gh_helper.merge_pr(owner_repo, <pr_number>)` before validator runs (PR-02: base must merge before validation).
+4. If any PR diff touches protected paths under `references/phases/phase4/verify.md` or `loongforge-phase-gate`, the loop controller will handle escalation to `human_needed` (PR-06).
 ## State Machine
 
 ### States
@@ -179,7 +209,24 @@ Each switch must include:
 - `preflight_skip_reason`: null when preflight passes, otherwise the exact reason execution was skipped or escalated
 
 Phase 4 switch selection and execution is table-driven:
-1. Read `phase0_output.model.model_type` and `model_spec.yaml` to derive structure tags: `is_llm`, `is_vlm`, `is_diffusion`, `is_moe`, `is_dense`, `has_vision_encoder`, `has_language_ce_loss`, `has_sft_data`, `has_visual_mock_input`.
+1. Read structure tags for feature matrix evaluation. **PRIMARY source**: `phase0_output.artifacts.hf_analysis_path` (hf_analysis.yaml). **SECONDARY source**: `phase0_output.artifacts.bridge_mapping_path` (bridge_mapping.yaml). **Legacy fallback**: `phase0_output.model.model_type` + `model_spec.yaml` (used only when hf_analysis_path is absent).
+
+Structure tag derivation from hf_analysis:
+- `is_llm`: `hf_analysis.model_category == "llm"`
+- `is_vlm`: `hf_analysis.model_category == "vlm"`
+- `is_diffusion`: `hf_analysis.model_category == "diffusion"`
+- `is_moe`: `hf_analysis.components` contains an entry with key `moe_gate` or `moe_layer`, OR any component has `structural_tags` containing `moe`
+- `is_dense`: NOT is_moe AND (is_llm OR is_vlm)
+- `has_vision_encoder`: `hf_analysis.components` contains an entry with key `vision_encoder` or `image_encoder`, OR any component has `structural_tags` containing `vision_encoder` or `vit`
+- `has_language_ce_loss`: is_llm OR (is_vlm AND `hf_analysis.components` contains `language_model`)
+- `has_sft_data`: determined from run_inputs or baseline config (not from hf_analysis)
+- `has_visual_mock_input`: determined from Phase 3 baseline artifacts (not from hf_analysis)
+
+Cross-reference from bridge_mapping: When bridge_mapping_path is present, verify that component types derived from hf_analysis are consistent with bridge_mapping.component_bridge entries. For each component_bridge entry, the `hf` field should correspond to a key in hf_analysis.components. If a component appears in bridge_mapping but not in hf_analysis, log a warning but do not fail.
+
+These derived tags are used to evaluate the `applies_to` field in each feature_matrix.yaml row. The evaluation logic is unchanged: OR semantics (any listed tag true = applicable), AND semantics for dependencies, mutually exclusive checking.
+
+Step 2 sub-item 2 (GPU count and parallelism metadata) remains unchanged -- it still reads from `model_spec.yaml` or the copied YAML config for num_layers, num_query_groups, etc. These are runtime configuration values not available in hf_analysis.
 2. Detect available GPU count via `nvidia-smi -L | wc -l` or equivalent; derive `num_layers`, `num_query_groups`, and relevant parallelism metadata from `model_spec.yaml` or the copied YAML config. Use these to pre-filter parallel-strategy rows before execution: skip TP/PP/VPP when `available_gpus < required_world_size`, skip PP when `num_layers < pipeline_model_parallel_size * 2`.
 3. Start from `references/phases/phase4/feature_matrix.yaml`; do not invent extra switches during execution.
 4. For each row, evaluate `applies_to` as OR semantics: the row is applicable when any listed tag is true, or when it contains `all`. Then evaluate `dependencies` as AND semantics: every dependency must be satisfied before execution. If any `mutually_exclusive` switch has already been selected for the same run, skip the row and record the conflict.
@@ -288,6 +335,13 @@ references/phases/phase4/phase4_output_schema.yaml
 ```
 
 The schema covers step-gate evidence, Phase 3 baseline source metadata, generated feature compatibility artifacts, single-switch results, combination results, human-needed reproductions, checks, and the authoritative `feature-compat` validator result. Final `phase.status` remains `status: passed | human_needed`; `failed` is only a per-switch or validator retry signal.
+
+When Phase 0 v2 output (three-document) is available, the output MUST include:
+- `source.hf_analysis_path`: `<phase0_output.artifacts.hf_analysis_path>` (present when Phase 0 v2 output exists)
+- `source.bridge_mapping_path`: `<phase0_output.artifacts.bridge_mapping_path>` (present when Phase 0 v2 output exists)
+- `checks.bridge_mapping_consumed`: `true` (when bridge_mapping was read and used; absent for legacy runs)
+
+When `hf_analysis_path` or `bridge_mapping_path` is absent (legacy runs), these fields are omitted from the output. The validator skips corresponding checks.
 
 ---
 

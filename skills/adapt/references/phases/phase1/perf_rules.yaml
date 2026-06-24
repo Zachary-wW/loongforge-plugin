@@ -1,0 +1,232 @@
+# Phase 1 performance guard rail rules.
+# Phase 1 Step 3 reads this file and enforces P1-P8 alongside G1-G14
+# from strategy_rules.yaml.
+
+version: 1
+purpose: >
+  Prevent observed performance anti-patterns in agent-generated LoongForge
+  and Megatron code. Each rule identifies a concrete violation_signal that
+  indicates the anti-pattern is present, with rationale explaining why the
+  pattern causes correctness, performance, or memory problems.
+  All rules have violation_severity: blocking -- a violation must be fixed
+  before Phase 1 can pass.
+
+rules:
+
+  - id: P1
+    name: core_attention_no_identity_op
+    applies_to_gaps: [P1:G05]
+    when: >
+      Model uses a novel attention variant (CSA, HCA, sparse, compressor-based,
+      or any non-standard MHA/GQA/MLA) that replaces standard FlashAttention/SDPA
+      in the core_attention slot.
+    rule: >
+      The core_attention slot in the layer_spec MUST be filled with a ModuleSpec
+      pointing to the novel attention module (e.g.
+      ModuleSpec(module=CompressedSparseAttention, submodules=...)),
+      NEVER with IdentityOp. The attention class's forward MUST delegate to
+      self.core_attention(query, key, value, ...) with all required arguments,
+      not fall back to a naive matmul.
+    violation_signal: >
+      core_attention=IdentityOp in the attention submodules spec, OR the
+      attention forward contains a fallback matmul path that activates when
+      core_attention is IdentityOp.
+    violation_severity: blocking
+    rationale: >
+      IdentityOp in the core_attention slot means the model's primary attention
+      mechanism is completely absent. Zero attention output wastes all upstream
+      computation, produces meaningless loss values, and will fail checkpoint
+      conversion because core_attention weights (attn_sink, compressor params)
+      have no corresponding module to receive them.
+
+  - id: P2
+    name: flat_parameter_not_custom_module
+    applies_to_gaps: [P1:G18]
+    when: >
+      Model uses grouped output projection where attention output is split into
+      groups, each projected through a low-rank factor, then mixed by a final
+      linear layer.
+    rule: >
+      The grouped output projection MUST use a flat nn.Parameter (2D) with
+      view() + einsum pattern, NOT a custom nn.Module subclass with bmm.
+      Correct pattern:
+        1. self.linear_o_group_proj = nn.Parameter(empty(group_proj_out, group_proj_in))
+        2. In forward: w = self.linear_o_group_proj.view(n_groups, o_lora_rank, -1)
+        3. Then: torch.einsum("...gd,grd->...gr", attn_out, w)
+        4. Followed by linear_proj (row-parallel) for the final mix.
+    violation_signal: >
+      A custom GroupedLinear(nn.Module) class with
+      self.weight = Parameter(empty(n_groups, out, in_per_group)) and bmm
+      forward, instead of a flat nn.Parameter + view + einsum.
+    violation_severity: blocking
+    rationale: >
+      Custom GroupedLinear modules break TP dimension splitting (which expects
+      flat 2D parameters) and checkpoint conversion (which expects
+      linear_o_group_proj as a flat parameter name). The einsum pattern is
+      what Megatron's TP logic handles correctly.
+
+  - id: P3
+    name: reuse_megatron_moe_infrastructure
+    applies_to_gaps: [P1:G18]
+    when: >
+      Model uses MoE features for which Megatron already provides infrastructure
+      (routing, expert parallelism, token dispatch, expert computation,
+      activation clamping).
+    rule: >
+      Prefer reuse_megatron or wrap_megatron over new_impl for any MoE
+      sub-component that Megatron already supplies. Specifically:
+        - Hash routing: use the moe_n_hash_layers config field and
+          Megatron TopKRouter rather than a custom HashRouter class.
+        - SwiGLU / activation clamping: use the activation_func_clamp_value
+          config field with TEGroupedMLP or SequentialMLP rather than a
+          custom Experts module with manual clamp logic.
+        - KV projection in MoE context: follow the MLA build_module pattern
+          with proper TE module construction and parallel_mode='duplicated'
+          rather than a bare ColumnParallelLinear that assumes shared-KV.
+    violation_signal: >
+      A new_impl strategy is chosen for routing, expert MLP, or KV
+      projection when a config-field-driven wrap_megatron or reuse_megatron
+      strategy exists and the required behavior does not genuinely diverge
+      from Megatron's infrastructure.
+    violation_severity: blocking
+    rationale: >
+      Custom MoE implementations duplicate parallelism, token dispatch, and
+      load-balancing logic that Megatron already handles correctly. They
+      introduce subtle bugs (incorrect AllReduce, wrong expert-parallel
+      dispatch, missing gradient sync) that the framework has already solved.
+      Using framework infrastructure also ensures future Megatron improvements
+      benefit the model automatically.
+
+  - id: P4
+    name: activation_checkpointing_for_large_models
+    applies_to_gaps: []
+    when: >
+      Model has num_layers >= 32 OR ffn_hidden_size >= 65536 OR MoE with
+      num_experts >= 8.
+    rule: >
+      MUST include activation checkpointing configuration. Either:
+        - The example pretrain script must include --checkpoint-activations flag, OR
+        - The config must include activations_checkpoint_method field, OR
+        - The layer_spec must wire checkpoint-compatible submodules.
+      At least one of these must be present; absence of all three is a violation.
+    violation_signal: >
+      No --checkpoint-activations in example script AND no
+      config.activations_checkpoint_method AND no checkpoint-compatible
+      submodule wiring, for a model meeting the size threshold.
+    violation_severity: blocking
+    rationale: >
+      Large models without activation checkpointing will OOM during training.
+      Activation checkpointing trades compute for memory and is essential for
+      any model with 32+ layers, large FFN hidden sizes, or MoE with 8+
+      experts. The OOM failure is deterministic and unrecoverable at runtime.
+
+  - id: P5
+    name: correct_tp_ep_communication
+    applies_to_gaps: []
+    when: >
+      Model uses Tensor Parallelism (TP) or Expert Parallelism (EP) for
+      distributed training.
+    rule: >
+      MoE communication MUST use Megatron TokenDispatcher (configured via
+      TransformerConfig fields), NOT raw torch.distributed.all_to_all calls.
+      TP MUST use ColumnParallelLinear / RowParallelLinear via
+      BackendSpecProvider (TESpecProvider), NOT raw torch.distributed
+      all-gather or reduce-scatter calls.
+    violation_signal: >
+      Raw torch.distributed.all_to_all, torch.distributed.all_gather, or
+      torch.distributed.reduce_scatter calls in generated model code,
+      instead of Megatron's TokenDispatcher or BackendSpecProvider-managed
+      parallel linear layers.
+    violation_severity: blocking
+    rationale: >
+      Manual communication primitives bypass Megatron's overlap-optimization
+      pipeline, which interleaves computation and communication for improved
+      throughput. Raw torch.distributed calls also miss correct gradient
+      synchronization, load balancing, and expert-parallel dispatch that
+      the TokenDispatcher provides. The resulting bugs are subtle and
+      manifest as silent numerical errors in distributed training.
+
+  - id: P6
+    name: fused_kernel_when_available
+    applies_to_gaps: []
+    when: >
+      Operations have fused kernel implementations available in Megatron or
+      Transformer Engine (SwiGLU, RMSNorm, RoPE, cross-entropy loss).
+    rule: >
+      MUST use fused paths via Megatron/TE rather than manual torch
+      implementations. Specifically:
+        - SwiGLU: use TE's fused SwiGLU kernel or
+          core.fusions.fused_bias_swiglu, NOT manual
+          torch.nn.functional.silu + clamp.
+        - RMSNorm: use TE's fused RMSNorm or Megatron's fused_rms_norm,
+          NOT manual torch.rsqrt implementation.
+        - RoPE: use Megatron's fused RoPE kernel when available,
+          NOT manual complex exponential computation.
+        - Cross-entropy: use Megatron's fused cross-entropy,
+          NOT torch.nn.functional.cross_entropy on the full logits.
+    violation_signal: >
+      Manual torch.nn.functional.silu + clamp for SwiGLU, OR manual
+      RMSNorm with torch.rsqrt, OR manual RoPE with complex exponentials
+      when fused alternatives exist in the Megatron/TE imports accessible
+      to the generated code.
+    violation_severity: blocking
+    rationale: >
+      Unfused implementations are 2-5x slower than their fused counterparts
+      and often use more memory (e.g., materializing the full logits tensor
+      for cross-entropy). For production training at scale, this performance
+      gap translates to significant GPU-hour waste and may prevent fitting
+      the model in available memory.
+
+  - id: P7
+    name: inverse_rope_for_mla_hybrid
+    applies_to_gaps: []
+    when: >
+      Model uses MLA (Multi-head Latent Attention) with hybrid attention
+      where qk_nope_head_dim != 0 AND qk_rope_head_dim != 0 (i.e., the
+      model has both non-positional and positional head dimensions).
+    rule: >
+      The attention forward MUST implement inverse RoPE. When the query and
+      key projections produce both nope (non-rotary) and rope (rotary)
+      dimensions, the rope dimensions receive RoPE encoding while the nope
+      dimensions do not. To correctly compute attention scores over the
+      combined representation, the rope dimensions must be un-rotated
+      (inverse RoPE) before concatenation with nope dimensions, or an
+      equivalent mathematically correct approach must be used.
+    violation_signal: >
+      No inverse_rope method or equivalent un-rotation logic when
+      qk_nope_head_dim > 0 and qk_rope_head_dim > 0, OR the forward
+      method concatenates nope and rope dimensions without handling
+      the rotation mismatch.
+    violation_severity: blocking
+    rationale: >
+      Mixed rotary/non-rotary dimensions without inverse RoPE produce
+      incorrect attention scores and incorrect gradients. The nope
+      dimensions carry absolute position information while the rope
+      dimensions carry relative position information. Directly mixing
+      them without un-rotation creates a mathematically inconsistent
+      representation that causes training divergence.
+
+  - id: P8
+    name: activation_offload_context
+    applies_to_gaps: []
+    when: >
+      Model has num_layers >= 64 OR MoE with num_experts >= 64.
+    rule: >
+      MUST support activation offloading context. Either:
+        - The config must include activation_offloading or
+          num_offloaded_layers fields, OR
+        - The layer_spec must wire offload-compatible submodules, OR
+        - The example script must include --activation-offloading flag.
+      At least one must be present.
+    violation_signal: >
+      No offloading config field, no offload-compatible submodule wiring,
+      and no --activation-offloading in example script, for a model with
+      64+ layers or 64+ experts.
+    violation_severity: blocking
+    rationale: >
+      Extremely deep models (64+ layers) or massive MoE models (64+ experts)
+      cannot fit activation memory on a single GPU without offloading. Without
+      offloading support, these models will deterministically OOM during
+      training. Offloading activations to CPU memory during the forward pass
+      and reloading them during the backward pass is essential for memory
+      feasibility at this scale.

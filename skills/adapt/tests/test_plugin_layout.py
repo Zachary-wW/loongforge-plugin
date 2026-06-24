@@ -76,7 +76,13 @@ def test_phase0_schemas_are_externalized():
     reference_data = yaml.safe_load(reference_schema.read_text())
     slice_data = json.loads(slice_schema.read_text())
 
-    assert "references/phases/phase0/reference_contract_schema.yaml" in manual_text
+    # After Phase 0 redesign (Plan 06-01), agent.md references bridge_mapping_schema
+    # instead of the literal reference_contract_schema.yaml path.
+    # Either the schema path or bridge_mapping_schema reference must appear.
+    assert (
+        "references/phases/phase0/reference_contract_schema.yaml" in manual_text
+        or "bridge_mapping_schema" in manual_text
+    ), "agent.md must reference either reference_contract_schema.yaml or bridge_mapping_schema"
     assert "references/phases/phase0/slice_report_schema.json" in manual_text
     assert "`reference_contract.yml` must use model-agnostic fields only:" not in manual_text
     assert "`slice_report.json` schema:" not in manual_text

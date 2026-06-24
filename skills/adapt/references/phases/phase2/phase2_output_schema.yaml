@@ -39,7 +39,8 @@ steps:
 
 source:
   slice_hf_ckpt_path: <from phase0_output>
-  model_spec_path: <from phase0_output>
+  bridge_mapping_path: <from phase0_output, primary input for weight name mapping>  # NEW — replaces model_spec_path as primary
+  model_spec_path: <from phase0_output>  # legacy fallback when bridge_mapping absent
 
 model:
   model_name: <name>
@@ -51,6 +52,11 @@ artifacts:
     - configs/models/<family>/ckpt_convert/<family>_convert.yaml
     - examples/<family>/checkpoint_convert/convert_<model>_hf_to_mcore.sh
     - tools/dist_checkpoint/test/<family>/<model>_bridge_roundtrip.sh
+  generated_loongforge_files:  # NEW — LoongForge conversion artifacts (same content as generated_files)
+    - configs/models/<family>/ckpt_convert/<family>_convert.yaml
+    - examples/<family>/checkpoint_convert/convert_<model>_hf_to_mcore.sh
+    - tools/dist_checkpoint/test/<family>/<model>_bridge_roundtrip.sh
+  generated_megatron_files: []  # NEW — Megatron files from Phase 1 that affect convert_checkpoint
   output_ckpt: phases/phase2/convert_output/tmp
   hf_roundtrip_output: phases/phase2/hf_roundtrip_output
 
@@ -76,6 +82,7 @@ checks:
   offline_conversion_passed: true
   production_conversion_passed: true
   offline_roundtrip_passed: true
+  bridge_mapping_consumed: true  # NEW — true when bridge_mapping was used as primary input
 
 validator:
   name: phase2-conversion

@@ -13,14 +13,42 @@ Read the following source files at phase start:
 | Source File | Required | Key Fields Used |
 |-------------|----------|-----------------|
 | `run_dir/run_inputs.yml` | Yes | `source.hf_ckpt_path`, `options.model_name` |
-| `run_dir/phases/phase0_output.yml` | Yes | `model.candidate_family`, `model.model_type` (llm/vlm/diffusion) |
-| `run_dir/phases/phase1_output.yml` | No | `status`, `artifacts.generated_files` |
+| `run_dir/phases/phase0_output.yml` | Yes | `model.candidate_family`, `model.model_type`, `artifacts.hf_analysis_path`, `artifacts.bridge_mapping_path`, `artifacts.model_spec_path` |
+| `run_dir/phases/phase0/hf_analysis.yaml` (via `phase0_output.artifacts.hf_analysis_path`) | Yes (when present) | `model_category`, `candidate_family`, `components`, `structural_tags`, `traps`, `special_features`, `behavior_modifications`, `novel_modules`, `fp32_modules`, `weight_structure` |
+| `run_dir/phases/phase0/bridge_mapping.yaml` (via `phase0_output.artifacts.bridge_mapping_path`) | Yes (when present) | `component_bridge`, `gaps`, `validator_requirements` |
+| `run_dir/phases/phase1_output.yml` | No | `status`, `artifacts.generated_loongforge_files`, `artifacts.generated_megatron_files` |
 | `run_dir/phases/phase2_output.yml` | No | `status`, `artifacts.generated_files` |
 | `run_dir/phases/phase3_output.yml` | No | `status` |
 | `run_dir/phases/phase4_output.yml` | No | `status` |
 
-Also read `run_dir/phases/phase0/model_spec.yaml` for `components`, `vlm_components`, `traps`, `special_features`.
+When `phase0_output.artifacts.hf_analysis_path` is absent (legacy Phase 0 output), fall back to `phase0_output.artifacts.model_spec_path` for components, structural_tags, traps, special_features. This fallback will be removed in a future version.
 
+## Loop Engineering Hooks
+
+> These steps apply ONLY when `run_inputs.yml` contains a `repos:` block (loop-engineering mode).
+> Skip entirely for legacy invocations that do not provide `repos:`.
+
+### Pre-Edit: Branch Creation
+
+Before writing any files to the target repositories:
+
+1. Read `run_inputs.yml` and check if `repos:` block is present.
+2. If present, invoke `gh_helper.create_branch(owner_repo, branch="adapt/<run_id>/phase5/attempt<K>", base=<base_ref>)` on **both** target repos:
+   - **LoongForge repo**: use `repos.loongforge.url` for `owner_repo` and `repos.loongforge.ref` for `base_ref`.
+   - **Megatron repo**: use `repos.megatron.url` for `owner_repo` and `repos.megatron.ref` for `base_ref`.
+3. Record both branch names in `phases/phase5/attempts.jsonl` as `kind="branch"` entries (one per repo).
+4. If branch creation fails (already exists or name conflict), check `gh_helper.find_by_idempotency_key` for an existing artifact and reattach rather than creating a duplicate.
+
+### Post-Edit: PR Submission
+
+After writing all phase artifacts and before running the validator:
+
+1. If `repos:` block is present, invoke `gh_helper.open_pr(...)` on **both** repos:
+   - **LoongForge repo**: `gh_helper.open_pr(owner_repo, head=<branch>, base=<base_ref>, run_id=<run_id>, phase=5, attempt=<K>, kind="base")` with templated title/body.
+   - **Megatron repo**: `gh_helper.open_pr(owner_repo, head=<branch>, base=<base_ref>, run_id=<run_id>, phase=5, attempt=<K>, kind="base")`. The Megatron PR body MUST pin the LoongForge commit SHA (VAL-05: `loongforge_commit_sha: <sha>`).
+2. Record both PR numbers and URLs in `phases/phase5_output.yml` under the `pr:` block.
+3. Merge **both** PRs via `gh_helper.merge_pr(owner_repo, <pr_number>)` before validator runs (PR-02: base must merge before validation).
+4. If any PR diff touches protected paths under `references/phases/phase5/verify.md` or `loongforge-phase-gate`, the loop controller will handle escalation to `human_needed` (PR-06).
 ## State Machine
 
 ### States
@@ -28,7 +56,7 @@ Also read `run_dir/phases/phase0/model_spec.yaml` for `components`, `vlm_compone
 | State | Description |
 |-------|-------------|
 | `pending` | Phase not started; prerequisites not checked |
-| `reading_data` | Collecting fields from input files and model_spec.yaml |
+| `reading_data` | Collecting fields from input files, hf_analysis.yaml, and bridge_mapping.yaml |
 | `writing_sources` | Creating or appending sources YAML |
 | `updating_index` | Appending INDEX.md entry |
 | `updating_log` | Appending LOG.md adapt event |
@@ -84,7 +112,7 @@ Phase 5 output must separate KB update status from full adaptation status. `kb_u
 
 | Step | Name | Description |
 |------|------|------|
-| 1 | Read adaptation data | Collect required fields from input files and model_spec.yaml |
+| 1 | Read adaptation data | Collect required fields from input files, hf_analysis.yaml, and bridge_mapping.yaml |
 | 2 | Determine target file | Check if sources YAML already exists, decide create or append flow |
 | 3 | Write sources YAML | Create full file, or only append missing traps/code_paths/omni_reference |
 | 4 | Update INDEX.md | Append new model entry in the Sources section (skip if already exists) |
@@ -110,7 +138,30 @@ references/phases/phase5/extraction_rules.yaml
 
 Use that file to extract base fields, infer `structural_tags`, collect `diff_components`, convert traps, build `code_paths`, and build `omni_reference`. It also defines model-category differences for LLM, VLM, and Diffusion, placeholder behavior when Phase 1 or Phase 2 has not passed, append-flow rules, and the source templates to use in Step 3.
 
-Step 1 is complete only when all fields required by the selected source template are either populated from Phase outputs/model_spec or explicitly represented by the placeholder rules from `extraction_rules.yaml`.
+Read structured data from Phase 0 v2 output:
+
+**PRIMARY sources** (when `phase0_output.artifacts.hf_analysis_path` is present):
+- From **hf_analysis.yaml**: `model_category`, `candidate_family`, `components` (key, diff, strategy, delta, structural_tags, hf_class), `traps`, `special_features`, `behavior_modifications`, `novel_modules`, `fp32_modules`
+- From **bridge_mapping.yaml**: `component_bridge` (each entry: hf, megatron, strategy, confidence, behavioral_diff, delta), `gaps` (each entry: id, component, decision, impact, phase1_guidance)
+
+**Legacy fallback** (when `phase0_output.artifacts.hf_analysis_path` is absent):
+- From **model_spec.yaml**: `candidate_family`, `model_type`, `components`, `vlm_components`, `traps`, `special_features`, `behavior_modifications`
+
+**Phase 1 file lists** (when phase1_output exists):
+- `phase1_output.artifacts.generated_loongforge_files` -- LoongForge file paths for code_paths
+- `phase1_output.artifacts.generated_megatron_files` -- Megatron file paths for megatron_code_paths (NEW)
+
+When phase1_output exists but `generated_megatron_files` is absent (legacy Phase 1 output), fall back to `generated_files` for LoongForge paths and omit megatron_code_paths.
+
+When using hf_analysis + bridge_mapping as primary sources:
+- `traps` come from `hf_analysis.traps` (string list, same format as model_spec.traps)
+- `special_features` come from `hf_analysis.special_features` (dict format, same as model_spec.special_features)
+- Additional trap-like entries can be derived from `bridge_mapping.component_bridge[].behavioral_diff`: each behavioral_diff entry with `impact: high` or `impact: critical` becomes a trap entry with `field=topic` and `detail="HF: <hf> / Megatron: <megatron>"`.
+- Deduplication: if a behavioral_diff topic overlaps with an existing trap `field`, prefer the existing trap entry.
+
+When using model_spec.yaml as legacy fallback: traps extraction is unchanged from current behavior.
+
+Step 1 is complete only when all fields required by the selected source template are either populated from Phase outputs/hf_analysis/bridge_mapping or explicitly represented by the placeholder rules from `extraction_rules.yaml`.
 
 ---
 
@@ -290,6 +341,7 @@ Pass conditions:
 - If Phase 1 status is `passed`, `code_paths` must not remain a Phase 1 placeholder
 - If Phase 2 status is `passed`, `omni_reference` must not remain a Phase 2 placeholder
 - If Phase 3 or Phase 4 status is `passed`, the LOG phase status line must reflect that passed status
+- If Phase 1 status is `passed`, `megatron_code_paths` section must exist in the source YAML (in addition to `code_paths`)
 
 If any check fails, repair the inconsistent file and rerun `kb-consistency`. If repair is blocked by file permissions or ambiguous source data, return `human_needed` with `validator.status="human_needed"`, `failure_gate="kb_consistency"`, evidence, artifacts/logs, and `fallback_phase=null`.
 
@@ -306,6 +358,12 @@ references/phases/phase5/phase5_output_schema.yaml
 ```
 
 The schema covers step-gate evidence, KB update status, full adaptation status source, model metadata, updated KB artifacts, consistency checks, and the authoritative `kb-consistency` validator result. Final `phase.status` remains `status: passed | human_needed`; `adaptation_final_status` may additionally be `incomplete` when earlier phase outputs are missing.
+
+When Phase 0 v2 output exists, the output must include:
+- `source.hf_analysis_path` -- path to the hf_analysis.yaml consumed
+- `source.bridge_mapping_path` -- path to the bridge_mapping.yaml consumed
+- `checks.bridge_mapping_consumed: true` -- confirms bridge_mapping was read
+- `checks.hf_analysis_consumed: true` -- confirms hf_analysis was read
 
 ---
 

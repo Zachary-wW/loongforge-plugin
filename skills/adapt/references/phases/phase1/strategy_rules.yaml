@@ -17,6 +17,7 @@ preconditions:
   - Contract preflight has passed or been explicitly skipped.
   - Megatron architecture pre-read is complete.
   - Each component has diff/new_component/behavior_modification evidence from model_spec.yaml.
+  - When bridge_mapping.yaml exists, each component_bridge entry's confidence field determines 2c depth (see confidence_driven_validation).
 
 branches:
   - id: branch_a_same
@@ -33,11 +34,13 @@ branches:
       - Megatron component source via MEGATRON_COMPONENT_MAP.md Section 5
       - TransformerConfig / MLATransformerConfig fields controlling the component behavior
       - minimal relevant forward/helper slice when behavior-only differences are declared
+      - 2c depth gated by confidence level -- see confidence_driven_validation
     required_evidence:
       - megatron_source_file
       - interface_gaps
       - behavior_gaps
       - chosen_strategy_reason
+      - confidence_level and 2c_depth_performed
 
 strategies:
   - final_strategy: reuse_megatron
@@ -111,6 +114,407 @@ strategies:
       evidence, blast radius, tests, and return human_needed unless explicit framework-bugfix authorization is in scope.
     protected_file_implication: high risk; requires explicit authorization unless already in scope
 
+structural_rules:
+  # These rules constrain HOW chosen strategies are realized at the file and
+  # ModuleSpec level. They apply regardless of which model is being adapted.
+
+  - id: novel_attention_file_separation
+    applies_to_gaps: [P1:G01, P1:G02, P1:G03]
+    when: >
+      model_spec.components contains attention variants with compressors,
+      indexers, sparse attention sub-modules, or other novel sub-components
+      beyond standard multi-head / GQA attention.
+    rule: >
+      Each distinct novel sub-module (compressor, indexer, sparse selector,
+      etc.) MUST be placed in its own file under the model directory rather
+      than inlined into the main attention module. The layer_spec MUST use a
+      nested ModuleSpec hierarchy: core_attention holds a top-level spec whose
+      sub-specs (compressor_spec, indexer_spec, etc.) are nested underneath,
+      matching the actual architecture. Each distinct sub-module receives
+      final_strategy=new_impl independently -- never combine multiple novel
+      sub-modules into a single monolithic attention class.
+    violation_signal: >
+      A single file contains forward logic for more than one novel
+      sub-component, or the layer_spec flattens sub-components into sibling
+      entries instead of nesting under core_attention.
+    rationale: >
+      Inlined sub-modules create hidden coupling, make testing individual
+      components impossible, and block future reuse by other models that share
+      only a subset of the sub-components. Nested ModuleSpecs preserve the
+      architectural hierarchy and let the assembly factory instantiate each
+      sub-module through its own spec path.
+
+  - id: custom_rope_file_separation
+    applies_to_gaps: [P1:G11, P1:G16]
+    when: >
+      The model requires non-trivial RoPE features beyond basic fixed/learned
+      rotation -- for example: context parallel support, THD format, YaRN
+      RoPE with remove_interleaving, multi-section frequency mixing, or
+      dynamic RoPE scaling that introduces helper functions or state.
+    rule: >
+      Create a dedicated RoPE module file (e.g. <model>_rope.py) rather than
+      inlining RoPE helpers, theta computation, or frequency manipulation into
+      the attention module. The layer_spec references the RoPE module
+      explicitly; the attention module receives the computed
+      freqs/freqs_cos/freqs_sin or an already-applied tensor, never raw
+      RoPE configuration that it must interpret.
+    exception: >
+      If the only RoPE difference is a simple base_theta or scaling_factor
+      value already expressible via an existing TransformerConfig field, no
+      separate file is needed -- adjust the config field instead.
+    violation_signal: >
+      The attention module file contains theta computation, frequency
+      mixing, remove_interleaving, or context-parallel RoPE helpers that
+      exceed ~15 lines of RoPE-specific logic.
+    rationale: >
+      Non-trivial RoPE variants carry their own initialization, frequency
+      tensor construction, and parallel-distribution logic. Inlining them
+      into attention makes both the attention and the RoPE logic harder to
+      test, harder to reuse, and harder to debug. A dedicated file isolates
+      the RoPE contract and allows the same RoPE implementation to be shared
+      across attention heads that differ in other respects.
+
+  - id: megatron_moe_infrastructure_preference
+    applies_to_gaps: [P1:G18]
+    when: >
+      The model uses Mixture-of-Experts features for which Megatron already
+      provides infrastructure (routing, expert parallelism, token dispatch,
+      expert computation, activation clamping).
+    rule: >
+      Prefer wrap_megatron or reuse_megatron over new_impl for any MoE
+      sub-component that Megatron already supplies. Specifically:
+        - Hash routing: use the moe_n_hash_layers config field and
+          Megatron TopKRouter rather than a custom HashRouter class.
+        - SwiGLU / activation clamping: use the activation_func_clamp_value
+          config field with TEGroupedMLP or SequentialMLP rather than a
+          custom Experts module with manual clamp logic.
+        - KV projection in MoE context: follow the MLA build_module pattern
+          with proper TE module construction and parallel_mode='duplicated'
+          rather than a bare ColumnParallelLinear that assumes shared-KV.
+    violation_signal: >
+      A new_impl strategy is chosen for routing, expert MLP, or KV
+      projection when a config-field-driven wrap_megatron or reuse_megatron
+      strategy exists.
+    override: >
+      new_impl is acceptable only when the required MoE behavior genuinely
+      diverges from Megatron's infrastructure (e.g. a novel routing
+      algorithm with no TopKRouter equivalent, or expert parallelism that
+      Megatron's token dispatcher cannot support). Document the divergence
+      in chosen_strategy_reason.
+    rationale: >
+      Custom MoE implementations duplicate parallelism, token dispatch, and
+      load-balancing logic that Megatron already handles correctly. They
+      introduce subtle bugs (incorrect AllReduce, wrong expert-parallel
+      dispatch, missing gradient sync) that the framework has already solved.
+      Using framework infrastructure also ensures future Megatron
+      improvements (e.g. better expert parallelism, new comm primitives)
+      benefit the model automatically.
+
+  - id: attention_base_class_inheritance
+    applies_to_gaps: [P1:G04]
+    when: >
+      model_spec.components.attention has diff==differs or strategy==new_impl,
+      and the model uses a hybrid or novel attention variant (CSA, HCA, sparse,
+      compressor-based, etc.) rather than standard MHA/GQA/MLA.
+    rule: >
+      The attention module class MUST inherit from Megatron's `Attention` base
+      class (from megatron.core.transformer.attention), NOT from a standalone
+      `MegatronModule`. The typical pattern is a two-class hierarchy:
+        - Base class (e.g. `DSv4HybridAttention(Attention)`) handles grouped
+          output projection, inverse RoPE, core_attention delegation, and
+          activation offloading.
+        - Self-attention subclass (e.g. `DSv4HybridSelfAttention`) adds
+          Q/KV projections and `get_query_key_value_tensors`.
+      The base class MUST delegate `core_attention` to the novel sub-module
+      (e.g. CompressedSparseAttention) via the layer_spec's core_attention
+      slot, not implement a naive matmul fallback.
+    violation_signal: >
+      The attention class inherits from `MegatronModule` directly, OR the
+      forward method contains a raw `torch.matmul(q, k.transpose)` instead
+      of delegating to `self.core_attention(...)`.
+    rationale: >
+      Inheriting from `Attention` preserves Megatron's contract for TP
+      splitting, activation checkpointing, sequence parallelism, and
+      fine-grained offloading. A standalone MegatronModule breaks all of
+      these and forces the agent to reimplement parallel infrastructure
+      incorrectly.
+
+  - id: core_attention_slot_delegation
+    applies_to_gaps: [P1:G05]
+    when: >
+      The model has novel core attention sub-modules (CSA, HCA, sparse
+      selectors, compressors) that replace standard FlashAttention/SDPA.
+    rule: >
+      The layer_spec MUST fill the `core_attention` slot with a ModuleSpec
+      pointing to the novel core attention module (e.g.
+      `ModuleSpec(module=CompressedSparseAttention, submodules=...)`),
+      NEVER with `IdentityOp`. The attention class's forward MUST call
+      `self.core_attention(query, key, value, ...)` with all required
+      arguments including compressed KV tensors, not fall back to naive
+      matmul.
+    violation_signal: >
+      `core_attention=IdentityOp` in the attention submodules spec, OR the
+      attention forward contains a fallback matmul path for when
+      core_attention is IdentityOp.
+    rationale: >
+      IdentityOp in the core_attention slot means the model's primary
+      attention mechanism is completely absent. The model cannot produce
+      correct outputs, and checkpoint conversion will fail because
+      core_attention weights (attn_sink, compressor params) have no
+      corresponding module.
+
+  - id: config_field_naming_convention
+    applies_to_gaps: [P1:G07]
+    when: >
+      Generating config.py or YAML for a model that extends an existing
+      family (e.g. deepseek_v3 -> deepseek_v4).
+    rule: >
+      Config field names MUST align with the existing LoongForge convention
+      for that family. Before inventing new field names:
+        1. Read the candidate family's config class (e.g.
+           `deepseek_v3_config.py`) to discover established naming patterns.
+        2. Check the HF config.json for the canonical field names used in
+           the checkpoint.
+        3. Use `csa_` prefix for CSA/HCA fields, `moe_` prefix for MoE
+           fields, `mhc_`/`hc_` prefix for HyperConnection fields.
+        4. When the HF name differs from the Megatron name, add the mapping
+           in `__post_init__` rather than renaming the field.
+      Common naming mappings: `sliding_window` → `csa_window_size`,
+      `compress_rope_theta` → `csa_compress_rotary_base`,
+      `num_hash_layers` → `moe_n_hash_layers`,
+      `routed_scaling_factor` → `moe_router_topk_scaling_factor`.
+    violation_signal: >
+      Config uses invented field names not present in any existing family
+      config or HF config.json, OR names diverge from the family convention
+      without a `__post_init__` mapping entry.
+    rationale: >
+      Naming divergence silently breaks checkpoint conversion name_maps
+      and makes it impossible to trace a field back to its source. The
+      `__post_init__` mapping pattern is the LoongForge convention for
+      bridging HF and Megatron naming differences.
+
+  - id: experimental_attention_variant_mandatory
+    applies_to_gaps: [P1:G08]
+    when: >
+      The model uses a non-standard attention mechanism that requires a
+      specific attention factory path (hybrid, sparse, CSA/HCA, etc.)
+      rather than the default MHA/MLA path.
+    rule: >
+      Config MUST include `experimental_attention_variant` field set to the
+      correct variant string (e.g. `dsv4_hybrid`). Without this field,
+      Megatron's attention factory will instantiate the wrong attention
+      class, and the model will fail at initialization time. The YAML must
+      also include `v_head_dim` and `qk_pos_emb_head_dim` when the model
+      uses partial RoPE with non-standard head dimensions.
+    violation_signal: >
+      Config or YAML lacks `experimental_attention_variant`, OR the model
+      uses CSA/HCA/sparse attention but no variant string is specified.
+    rationale: >
+      Megatron's attention factory uses `experimental_attention_variant` as
+      the dispatch key. Without it, the factory falls back to standard
+      attention, which cannot handle compressor/indexer sub-modules.
+
+  - id: csa_compress_ratios_per_layer_list
+    applies_to_gaps: [P1:G09]
+    when: >
+      The model has per-layer attention type scheduling (e.g. sliding,
+      CSA, HCA layers with different compress ratios).
+    rule: >
+      Compress ratios MUST be a per-layer list (e.g. `csa_compress_ratios:
+      [0, 0, 4, 128, 4, 128, ...]`), NOT a dict with category keys (e.g.
+      `{"csa": 4, "hca": 128}`). The list length MUST equal
+      `num_layers + mtp_num_layers`. Each entry specifies the compress
+      ratio for that layer index (0=sliding/window-only, 4=CSA, 128=HCA).
+      The config `__post_init__` MUST validate list length and that all
+      values are in the allowed set (e.g. `{0, 4, 128}`).
+    violation_signal: >
+      Config uses `compress_rates: Optional[dict]` instead of
+      `csa_compress_ratios: Optional[List[int]]`, OR the list length does
+      not match `num_layers + mtp_num_layers`.
+    rationale: >
+      A dict format loses per-layer resolution and cannot express mixed
+      schedules (e.g. first 2 layers = 0, then alternating 4/128). The
+      per-layer list is the format consumed by both the CSA module (which
+      reads `config.csa_compress_ratios[layer_number]`) and the layer
+      spec builder (which interleaves dense/MoE patterns).
+
+  - id: qk_layernorm_detection
+    applies_to_gaps: [P1:G12]
+    when: >
+      The HF model applies normalization (RMSNorm/LayerNorm) to Q and/or
+      KV tensors after projection, visible as `q_a_norm`, `kv_norm`,
+      `q_layernorm`, `kv_layernorm` attributes or explicit norm calls in
+      the modeling file.
+    rule: >
+      If the HF source applies any normalization to Q or KV after linear
+      projection, config `qk_layernorm` MUST be set to `True`. The norm
+      modules MUST be wired through the layer_spec (not constructed inline)
+      using `build_module(submodules.q_layernorm, ...)` and
+      `build_module(submodules.kv_layernorm, ...)` with
+      `backend.layer_norm(rms_norm=True, for_qk=True)`.
+    violation_signal: >
+      `qk_layernorm: False` when the HF source has Q/KV norm, OR norm
+      modules constructed inline via `self.q_a_norm =
+      CustomRMSNorm(...)` instead of `build_module(submodules.q_layernorm)`.
+    rationale: >
+      Setting `qk_layernorm=False` silently skips required normalization,
+      causing numerical divergence. Inline norm construction bypasses
+      Megatron's spec-driven assembly and breaks TP splitting of norm
+      parameters.
+
+  - id: hyper_connection_module_wiring
+    applies_to_gaps: [P1:G15]
+    when: >
+      The model uses Manifold-Constrained Hyper-Connections or any
+      residual stream multiplexing (detected by `hc_mult > 1`,
+      `enable_hyper_connections`, or `num_residual_streams > 1` in config).
+    rule: >
+      Layer_spec MUST import `HyperConnectionModule` from
+      `megatron.core.transformer.hyper_connection` and wire it
+      conditionally:
+        `hc_module = HyperConnectionModule if config.enable_hyper_connections
+        else IdentityOp`
+      Then set:
+        `self_attention_hyper_connection=hc_module`,
+        `mlp_hyper_connection=hc_module`
+      The config `__post_init__` MUST map family-specific HC fields to
+      Megatron fields: `hc_mult → num_residual_streams`,
+      `hc_sinkhorn_iters → mhc_sinkhorn_iterations`,
+      `hc_eps → mhc_init_gating_factor`,
+      `enable_hyper_connections=True`.
+    violation_signal: >
+      `self_attention_hyper_connection=IdentityOp` when
+      `enable_hyper_connections=True` in config, OR no
+      `HyperConnectionModule` import in layer_spec.
+    rationale: >
+      Without HyperConnectionModule wiring, the model falls back to
+      standard residual connections, producing wrong hidden state shapes
+      and incorrect gradient flow for multi-stream architectures.
+
+  - id: megatron_submodule_naming_convention
+    applies_to_gaps: [P1:G16]
+    when: >
+      Generating attention or other submodule specs that reference
+      Megatron linear layers, norms, or projections.
+    rule: >
+      Submodule names MUST follow Megatron's naming convention as used in
+      the candidate family's existing specs. For MLA/MQA attention:
+        - `linear_q_down_proj` (not `linear_q_a_proj`)
+        - `linear_q_up_proj` (not `linear_q_b_proj`)
+        - `linear_kv_proj` (not `linear_kv_shared_proj`)
+        - `q_layernorm` / `kv_layernorm` (not `q_a_norm` / `kv_norm`)
+        - `linear_proj` (not `linear_o_b_proj`)
+      Before naming submodules, read the existing family's layer_spec to
+      discover the established naming pattern.
+    violation_signal: >
+      Submodule names that don't match any existing Megatron or family
+      convention, OR names that would break checkpoint conversion name_maps.
+    rationale: >
+      Submodule names are the keys used by checkpoint conversion. Wrong
+      names mean the converter cannot locate parameters, and the model
+      cannot load weights.
+
+  - id: grouped_output_projection_flat_parameter
+    applies_to_gaps: [P1:G18]
+    when: >
+      The model uses a grouped output projection where attention output is
+      split into groups, each projected through a low-rank factor, then
+      mixed by a final linear.
+    rule: >
+      The grouped output projection MUST use a flat `nn.Parameter` (2D)
+      with `view()` + `einsum` pattern, NOT a custom `nn.Module` subclass
+      with `bmm`. The correct pattern:
+        1. `self.linear_o_group_proj = nn.Parameter(empty(group_proj_out, group_proj_in))`
+        2. In forward: `w = self.linear_o_group_proj.view(n_groups, o_lora_rank, -1)`
+        3. Then: `torch.einsum("...gd,grd->...gr", attn_out, w)`
+        4. Followed by `linear_proj` (row-parallel) for the final mix.
+    violation_signal: >
+      A custom `GroupedLinear(nn.Module)` class with `self.weight =
+      Parameter(empty(n_groups, out, in_per_group))` and `bmm` forward,
+      instead of a flat `nn.Parameter` + `view` + `einsum`.
+    rationale: >
+      Custom GroupedLinear modules break TP dimension splitting (which
+      expects flat 2D parameters) and checkpoint conversion (which
+      expects `linear_o_group_proj` as a flat parameter name). The
+      einsum pattern is what Megatron's TP logic handles.
+
+  - id: backend_spec_provider_pattern
+    applies_to_gaps: [P1:G19]
+    when: >
+      Generating layer_spec for a model that uses Transformer Engine (TE)
+      backends for linear layers, norms, or MoE modules.
+    rule: >
+      Layer_spec MUST use `TESpecProvider` or `BackendSpecProvider` from
+      `megatron.core.extensions.transformer_engine_spec_provider`, NOT
+      `multiacc_modules.TEColumnParallelLinear` direct access. The
+      backend pattern:
+        1. `backend = TESpecProvider()`
+        2. `backend.column_parallel_linear()`, `backend.row_parallel_linear()`
+        3. `backend.layer_norm(rms_norm=True, for_qk=True/False)`
+      When TE is not available, the backend falls back to local
+      implementations automatically.
+    violation_signal: >
+      `from loongforge.models.dispatch import multiacc_modules` followed
+      by direct use of `multiacc_modules.TEColumnParallelLinear`, OR
+      manual `ColumnParallelLinear`/`RowParallelLinear` construction
+      instead of `backend.column_parallel_linear()`.
+    rationale: >
+      The BackendSpecProvider pattern is Megatron's abstraction for
+      backend selection (TE vs local). Direct `multiacc_modules` access
+      bypasses this abstraction, preventing runtime backend switching
+      and losing TE-specific optimizations (FP8 quantization, memory
+      optimization via `set_save_original_input`).
+
+  - id: spec_driven_norm_construction
+    applies_to_gaps: [P1:G20]
+    when: >
+      Building norm modules (RMSNorm, LayerNorm, weightless norms) that
+      are part of a submodule spec.
+    rule: >
+      All norm modules MUST be constructed through `build_module()` from
+      the spec, not manually created inline via
+      `self.norm = CustomRMSNorm(...)` or
+      `self.norm = nn.Parameter(...)`. The spec determines the norm
+      type and backend; the attention/model class reads from
+      `submodules.q_layernorm`, `submodules.kv_layernorm`, etc.
+      Weightless RMS norms (e.g. `UnweightedRMSNorm`) MUST also be
+      wired through the spec, not constructed as custom inline classes.
+    violation_signal: >
+      `self.q_a_norm = DeepseekV4UnweightedRMSNorm(eps=...)` or similar
+      inline norm construction in the attention/model class, when the
+      norm should be `submodules.q_layernorm` built via spec.
+    rationale: >
+      Spec-driven construction ensures the norm uses the correct backend
+      (TE vs local), correct TP splitting, and correct parameter dtype.
+      Inline construction bypasses all of these, causing silent bugs in
+      distributed training.
+
+  - id: debug_scaffold_cleanup
+    applies_to_gaps: [P1:G23]
+    when: >
+      Phase 1 Step 7 verification has been completed (or skipped due to
+      no GPU), and the generated code contains any temporary debug hooks,
+      verification scaffolding, environment-variable-gated test code, or
+      synthetic input generation.
+    rule: >
+      Before writing `phase1_output.yml` with `status=passed`, the agent
+      MUST scan all generated .py files for:
+        1. `os.environ.get("OMNI_PHASE1_VERIFY")` or similar env-var hooks
+        2. `torch.arange(...)` or other synthetic tensor generation
+           inside model.forward()
+        3. Any `# DEBUG` or `# VERIFICATION` commented blocks
+        4. Any `if VERIFY` or `if DEBUG` conditional branches
+      All such scaffolding MUST be removed entirely or replaced with
+      production-grade implementations. Gating behind an environment
+      variable is NOT acceptable for production code.
+    violation_signal: >
+      Generated model.py or any other file contains `os.environ.get(...)`
+      checks that override normal forward behavior with synthetic inputs.
+    rationale: >
+      Debug scaffolding left in production code silently changes model
+      behavior at runtime, causes hard-to-debug training failures, and
+      is invisible to code review when env vars default to disabled.
+
 contract_required_fields:
   contract_evidence:
     reference_ids: []
@@ -165,3 +569,148 @@ shared_megatron_change_policy: >
   in this order: layer_spec module/params selection, model-specific subclass/wrapper,
   config-gated verified path, new model-specific module. If none works or blast
   radius is unclear, return human_needed with the Megatron file and reason.
+
+# --- Confidence-driven validation depth (per D-07, D-10) ----------------------
+# When bridge_mapping.yaml exists, each component_bridge entry's confidence field
+# determines how deep Step 2c Megatron reading goes. High-confidence components
+# skip deep reading; low-confidence and gap components get progressively more
+# analysis. This avoids wasting token budget on well-understood components while
+# ensuring thorough analysis where Phase 0 had low confidence.
+
+confidence_driven_validation:
+
+  - confidence: high
+    condition: >
+      bridge_mapping.component_bridge[].confidence == "high" for this component.
+      Typically means diff==same or the Megatron counterpart is well-understood
+      from Phase 0 analysis.
+    step2c_action: >
+      SKIP 2c entirely. Adopt bridge_mapping strategy directly as final_strategy.
+      Verify that reference_impl_analysis.yaml contains an entry for this
+      component's megatron class and that the entry is complete (has
+      init_signature, forward_signature, submodule_slots).
+    verification: >
+      Check reference_impl_analysis.yaml for the component's megatron class.
+      Entry must exist and be complete. If missing or incomplete, downgrade
+      to confidence=low and perform full 2c reading.
+    strategy_override: >
+      None expected for high-confidence components. Bridge_mapping strategy
+      is adopted directly. If override is needed, record reason and downgrade
+      confidence in strategy_plan.
+    record_in_strategy_plan: >
+      confidence_level: high, 2c_skipped: true, reference_entry_verified: true|false,
+      final_strategy: <adopted from bridge_mapping>
+
+  - confidence: medium
+    condition: >
+      bridge_mapping.component_bridge[].confidence == "medium" for this component.
+      Typically means diff==differs with behavioral differences but the Megatron
+      counterpart is known.
+    step2c_action: >
+      SIMPLIFIED 2c. Only read Megatron source sections related to
+      behavioral_diff topics. Start from reference_impl_analysis.yaml entry
+      and read only the source sections needed to resolve behavioral
+      differences. Do NOT read the entire module source.
+    verification: >
+      For each behavioral_diff topic, confirm that the source reading
+      resolves the difference (either confirming bridge_mapping strategy
+      or providing evidence for an override).
+    strategy_override: >
+      May override bridge_mapping strategy with evidence from source reading.
+      If evidence contradicts bridge_mapping strategy, record override reason
+      in strategy_plan.notes. Override requires specific code-level evidence,
+      not general impressions.
+    record_in_strategy_plan: >
+      confidence_level: medium, 2c_depth: simplified (behavioral_diff topics only),
+      behavioral_diff_topics_read: [<list>], final_strategy: <adopted or overridden>,
+      override_reason: <if overridden, else null>
+
+  - confidence: low
+    condition: >
+      bridge_mapping.component_bridge[].confidence == "low" for this component.
+      Typically means new_component or the Megatron counterpart is uncertain
+      or absent from Phase 0 analysis.
+    step2c_action: >
+      FULL 2c (2c.1-2c.7). Read Megatron source files in depth, same as
+      the current Branch B flow. Start from reference_impl_analysis.yaml
+      entry as a starting point, then perform detailed source reading.
+    verification: >
+      All standard Branch B verification: interface gaps, behavior gaps,
+      config field coverage, submodule slot coverage. Same evidence
+      requirements as non-confidence-driven flow.
+    strategy_override: >
+      May override bridge_mapping strategy. Must record override reason
+      in strategy_plan.notes with specific evidence from source reading.
+      Override is expected for low-confidence components -- Phase 0's
+      strategy was a preliminary estimate.
+    record_in_strategy_plan: >
+      confidence_level: low, 2c_depth: full (2c.1-2c.7),
+      megatron_source_files_read: [<list>], interface_gaps: [<list>],
+      behavior_gaps: [<list>], final_strategy: <adopted or overridden>,
+      override_reason: <reason with evidence>
+
+  - confidence: gap
+    condition: >
+      bridge_mapping.component_bridge[].megatron == null for this component.
+      No Megatron counterpart exists. This is a gap that requires new
+      module design.
+    step2c_action: >
+      NO 2c. No Megatron module exists to read. Read
+      bridge_mapping.gaps[].phase1_guidance for this component.
+      Proceed to Step 2d for gap module design.
+    verification: >
+      phase1_guidance exists and is non-empty. HF source for the gap
+      component is readable. reference_impl_analysis.yaml modules for
+      nearby components (potential base classes or integration points)
+      are available.
+    strategy_override: >
+      Not applicable -- gap components always use new_impl strategy
+      (or the strategy specified in bridge_mapping.gaps[].decision).
+      The question is HOW to implement, not WHETHER to override.
+    record_in_strategy_plan: >
+      confidence_level: gap, 2c_skipped: true (no Megatron module),
+      gap_id: <G1, G2, ...>, phase1_guidance: <summary>,
+      final_strategy: new_impl or <as specified in gaps[].decision>,
+      gap_module_design: <from Step 2d>
+
+step2d_gap_module_design:
+  purpose: >
+    Design new Megatron modules for gap components (megatron=null in
+    bridge_mapping). Produces a design spec that Step 3 uses to generate
+    the actual code for both Megatron and LoongForge repositories.
+  required_inputs:
+    - phase1_guidance from bridge_mapping.gaps[] for this gap
+    - hf class name from bridge_mapping.gaps[].hf or component_bridge[].hf
+    - reference_impl_analysis modules for nearby Megatron components
+      (potential base classes, integration points)
+    - HF source code for the gap component (interface understanding)
+  design_output:
+    module_class: >
+      Class name for the new module (e.g., "DSAttention",
+      "CSAIndexer", "DeepseekV4HashRouter")
+    target_file: >
+      Where the new module will be placed in the Megatron source tree
+      (e.g., "megatron/core/transformer/experimental_attention_variant/dsa.py")
+    base_class: >
+      Megatron base class to inherit from (e.g., "Attention",
+      "ParallelAttention", or null if standalone)
+    init_fields: >
+      Config fields and submodule slots needed in __init__
+      (e.g., "config: TransformerConfig, q_lora_rank: int,
+      linear_q_down_proj: ColumnParallelLinear, ...")
+    forward_contract: >
+      Input/output signature for forward()
+      (e.g., "inputs: hidden_states, attention_mask, ...
+      outputs: context, context_mask")
+    submodule_slots: >
+      Replaceable sub-modules within this module
+      (e.g., "core_attention: DSAttentionCore, indexer: CSAIndexer")
+    integration_point: >
+      How this module connects to the Megatron assembly
+      (e.g., "ModuleSpec slot in DSAttentionSubmodules.indexer,
+      config-gated via experimental_attention_variant='dsv4_hybrid'")
+    protected_files_compliance: >
+      Note on whether the target_file is a new file (always allowed) or
+      an existing file modification (must follow conditional-modify protocol
+      per PROTECTED_FILES.md and D-02). New modules in new files are the
+      default; existing-file modifications require explicit justification.
