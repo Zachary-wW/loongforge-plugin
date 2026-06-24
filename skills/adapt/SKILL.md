@@ -1,7 +1,7 @@
 ---
 name: adapt
 description: >
-  Use when adapting a HuggingFace model to LoongForge, running the six-phase
+  Use when adapting a HuggingFace model to LoongForge, running the seven-phase
   model adaptation workflow with optional loop-engineering mode (repos: gated
   closed-loop PR/issue/merge/validate cycle on external GitHub repos until all
   phase validators pass), resuming adaptation runs, or coordinating LoongForge
@@ -179,7 +179,7 @@ Close any stranded auxiliary issues identified by the housekeeping check that we
 
 ## Claude Code Harness Reuse
 
-- Use `TaskCreate` / `TaskUpdate` to track Phase 0-5 live progress in the current session.
+- Use `TaskCreate` / `TaskUpdate` to track Phase 0-6 live progress in the current session.
 - Use phase-specific plugin agents when available; fallback to `general-purpose` only when needed.
 - `/loop` may be used only for coarse external waiting such as K8s/GPU jobs or remote CI-like validation.
 - Do not use /loop for phase-local repair loops; active phase agents own those loops and must write `phases/phaseN/attempts.jsonl`.
@@ -217,7 +217,7 @@ loongforge-adapt <hf_path> [--model-name <name>] [--run-dir <dir>]
 loongforge-adapt --resume <run_dir> [--from-phase <N>]
 ```
 
-## Six Phases
+## Seven Phases
 
 | Phase | Agent | Objective | Exit Gate |
 |---|---|---|---|
@@ -225,14 +225,15 @@ loongforge-adapt --resume <run_dir> [--from-phase <N>]
 | 1 | `adapt-phase1` | Omni network construction and random-init sanity verification | `phase1-verify` passes |
 | 2 | `adapt-phase2` | Weight conversion and production checkpoint verification | `phase2-conversion` passes |
 | 3 | `adapt-phase3` | Real-weight loss diff verification | `loss-diff` passes |
-| 4 | `adapt-phase4` | Feature switch and combination verification | `feature-compat` passes |
-| 5 | `adapt-phase5` | Knowledge base update | `kb-consistency` passes |
+| 4 | `adapt-phase4` | Performance profiling and tuning (nsys-profiler + performance-tuner) | `performance-tuning` passes |
+| 5 | `adapt-phase5` | Feature switch and combination verification | `feature-compat` passes |
+| 6 | `adapt-phase6` | Knowledge base update | `kb-consistency` passes |
 
 If phase-specific agents are unavailable, fall back to `general-purpose` and include the matching phase manual path plus the exit contract path in the prompt.
 
 ### Phase 0 Detail
 
-Phase 0 produces three core deliverables: `hf_analysis.yaml` (HF side), `reference_impl_analysis.yaml` (Megatron side), `bridge_mapping.yaml` (component bridge mapping with weight maps and gap detection). These replace the former single `model_spec.yaml` output. The `bridge_mapping.yaml` is the primary artifact consumed by downstream phases 1-5.
+Phase 0 produces three core deliverables: `hf_analysis.yaml` (HF side), `reference_impl_analysis.yaml` (Megatron side), `bridge_mapping.yaml` (component bridge mapping with weight maps and gap detection). These replace the former single `model_spec.yaml` output. The `bridge_mapping.yaml` is the primary artifact consumed by downstream phases 1-6.
 
 Phase 0 does NOT use the Loop FSM — it runs a quality inner loop (max 3 rounds) instead.
 

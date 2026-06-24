@@ -59,9 +59,11 @@ def _build_run_inputs(
     wip_code_paths: str = "",
     repos: dict | None = None,
     loop: dict | None = None,
+    schema_version: str = "2",
 ) -> dict:
     """Build the run_inputs.yml dict from collected parameters."""
     result = {
+        "schema_version": schema_version,
         "source": {
             "hf_ckpt_path": hf_ckpt_path,
         },
@@ -236,6 +238,7 @@ def init_run_dir(
         wip_code_paths=cli_kwargs.get("wip_code_paths", ""),
         repos=repos,
         loop=loop,
+        schema_version="2",
     )
     save_run_inputs(run_dir, inputs)
     # Preflight: only when repos is present (loop-engineering mode).
@@ -255,6 +258,13 @@ def init_run_dir(
 def resume_run_dir(run_dir: str, from_phase: int | None = None) -> dict:
     """Load run_inputs.yml, optionally backfill from legacy state, and clear phase outputs from from_phase onward."""
     inputs = load_or_backfill_run_inputs(run_dir)
+    sv = inputs.get("schema_version", 1)
+    if sv != 2:
+        print(f"[WARNING] Run directory has schema_version={sv} (expected 2). "
+              f"Phase numbering has changed: Phase 4 is now Performance Tuning, "
+              f"Phase 5 is Feature Compat, Phase 6 is KB Update. "
+              f"Use --from-phase 4 to reset from the new Phase 4.",
+              file=sys.stderr)
     if from_phase is not None:
         for phase_num in range(from_phase, 7):
             clear_phase_output(run_dir, phase_num)

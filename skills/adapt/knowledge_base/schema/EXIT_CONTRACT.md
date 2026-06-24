@@ -4,7 +4,7 @@
 
 This document defines how LoongForge adaptation phases exit. Phase completion is determined by each phase's authoritative validator action, not by the agent's subjective judgment that the phase steps look complete.
 
-The contract applies to Phase 1, Phase 2, Phase 3, and Phase 4. Phase 5 uses a lightweight knowledge-base consistency check. Phase 0 does not get a separate exit validator, but later phases may request fallback to Phase 0 when they discover upstream model-analysis defects.
+The contract applies to Phase 1, Phase 2, Phase 3, Phase 4, and Phase 5. Phase 6 uses a lightweight knowledge-base consistency check. Phase 0 does not get a separate exit validator, but later phases may request fallback to Phase 0 when they discover upstream model-analysis defects.
 
 ## Authoritative Validator Mapping
 
@@ -13,8 +13,9 @@ The contract applies to Phase 1, Phase 2, Phase 3, and Phase 4. Phase 5 uses a l
 | Phase 1 | `phase1-verify` | Trimmed random-init HF vs LoongForge loss alignment passes, and trainability sanity is healthy. Defined by `references/phases/phase1/verify.md` |
 | Phase 2 | `phase2-conversion` | Online conversion / bridge roundtrip, offline HF->mcore, offline mcore->HF, and HF roundtrip comparison all pass. Defined by `references/phases/phase2/agent.md` Step 5 |
 | Phase 3 | `loss-diff` | Real-weight step-1 forward loss and step 2..N train-step losses align. Defined by `references/phases/phase3/loss_diff.md` |
-| Phase 4 | `feature-compat` | All applicable runtime switches and required combinations pass; skipped/non-runtime rows are justified. Defined by `references/phases/phase4/agent.md` Steps 2-7 |
-| Phase 5 | `kb-consistency` | Sources YAML, INDEX, and LOG are consistent with the completed run |
+| Phase 4 | `performance-tuning` | Profiling bottleneck identified, at least one candidate validated, all four gates (performance, numerical, memory/stability, scope) judged. Defined by `references/phases/phase4/performance_tuning_gate.md` |
+| Phase 5 | `feature-compat` | All applicable runtime switches and required combinations pass; skipped/non-runtime rows are justified. Defined by `references/phases/phase5/agent.md` Steps 2-7 |
+| Phase 6 | `kb-consistency` | Sources YAML, INDEX, and LOG are consistent with the completed run |
 
 ## Internal Step Gate
 
@@ -153,7 +154,8 @@ Common fallback cases:
 - Phase 1 -> Phase 0: `model_spec.yaml` is incomplete or structurally wrong.
 - Phase 2 -> Phase 1: generated model code must change to make conversion valid.
 - Phase 3 -> Phase 1 or Phase 2: random-init structure validation or conversion validation is no longer valid.
-- Phase 4 -> Phase 1, Phase 2, or Phase 3: feature validation exposes model-code, conversion, or baseline precision issues.
+- Phase 5 -> Phase 1, Phase 2, or Phase 3: feature validation exposes model-code, conversion, or baseline precision issues.
+- Phase 4 -> Phase 3: performance validation exposes baseline precision or config issues
 
 ### Fallback in Autonomous Mode
 

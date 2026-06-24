@@ -93,6 +93,7 @@ class RunInputs(BaseModel):
     """Top-level run_inputs.yml. v1 had source/paths/options only.
     v2 adds optional repos and loop. Backward compat: omit them and we behave as v1."""
     model_config = ConfigDict(extra="forbid")
+    schema_version: Optional[str] = "2"
     source: SourceBlock = Field(default_factory=SourceBlock)
     paths: PathsBlock = Field(default_factory=PathsBlock)
     options: OptionsBlock = Field(default_factory=OptionsBlock)
