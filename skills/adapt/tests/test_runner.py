@@ -154,14 +154,14 @@ def test_init_run_dir_creates_structure(tmp_path):
     assert (Path(run_dir) / "run_inputs.yml").exists()
     assert (Path(run_dir) / "run_state.json").exists()
     # Phase directories
-    for i in range(6):
+    for i in range(7):
         assert (Path(run_dir) / "phases" / f"phase{i}").is_dir()
-    # Logs subdirectories for Phase 1-4
-    for i in range(1, 5):
+    # Logs subdirectories for Phase 1-5
+    for i in range(1, 6):
         assert (Path(run_dir) / "phases" / f"phase{i}" / "logs").is_dir()
-    # Phase 0 and 5 should not have logs dir
+    # Phase 0 and 6 should not have logs dir
     assert not (Path(run_dir) / "phases" / "phase0" / "logs").exists()
-    assert not (Path(run_dir) / "phases" / "phase5" / "logs").exists()
+    assert not (Path(run_dir) / "phases" / "phase6" / "logs").exists()
 
 
 def test_init_run_dir_inputs_content(tmp_path):
@@ -290,8 +290,8 @@ def test_cli_resume_from_phase(tmp_path):
     run_dir = str(tmp_path / "cli_resume_phase")
     init_run_dir(hf_ckpt_path="/tmp/model", model_name="test", run_dir=run_dir)
 
-    # Simulate phase0-5 passing
-    for i in range(6):
+    # Simulate phase0-6 passing
+    for i in range(7):
         output = {"phase": i, "status": "passed", "summary": "ok"}
         Path(phase_output_path(run_dir, i)).write_text(yaml.dump(output))
 

@@ -43,26 +43,28 @@ def test_plugin_contains_copied_adapt_assets():
     assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase2" / "conversion_gates.yaml").exists()
     assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase2" / "conversion_strategy_rules.yaml").exists()
     assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase3" / "phase3_output_schema.yaml").exists()
-    assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase4" / "feature_matrix.yaml").exists()
     assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase4" / "phase4_output_schema.yaml").exists()
-    assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase5" / "source_templates" / "llm.yaml").exists()
-    assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase5" / "source_templates" / "vlm.yaml").exists()
-    assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase5" / "source_templates" / "diffusion.yaml").exists()
+    assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase4" / "performance_tuning_gate.md").exists()
+    assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase5" / "feature_matrix.yaml").exists()
     assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase5" / "phase5_output_schema.yaml").exists()
-    assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase5" / "extraction_rules.yaml").exists()
+    assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase6" / "source_templates" / "llm.yaml").exists()
+    assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase6" / "source_templates" / "vlm.yaml").exists()
+    assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase6" / "source_templates" / "diffusion.yaml").exists()
+    assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase6" / "phase6_output_schema.yaml").exists()
+    assert (PLUGIN_SKILL_ROOT / "references" / "phases" / "phase6" / "extraction_rules.yaml").exists()
     assert (PLUGIN_SKILL_ROOT / "knowledge_base" / "schema" / "EXIT_CONTRACT.md").exists()
     assert (PLUGIN_SKILL_ROOT / "knowledge_base" / "schema" / "STEP_GATE.md").exists()
     assert (PLUGIN_SKILL_ROOT / "tests" / "test_runner.py").exists()
 
 
-def test_phase4_feature_matrix_is_externalized():
-    manual = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase4" / "agent.md"
-    matrix = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase4" / "feature_matrix.yaml"
+def test_phase5_feature_matrix_is_externalized():
+    manual = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase5" / "agent.md"
+    matrix = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase5" / "feature_matrix.yaml"
     manual_text = manual.read_text()
     matrix_data = yaml.safe_load(matrix.read_text())
 
-    assert "references/phases/phase4/feature_matrix.yaml" in manual_text
-    assert "Fixed Phase 4 switch matrix:" not in manual_text
+    assert "references/phases/phase5/feature_matrix.yaml" in manual_text
+    assert "Fixed Phase 5 switch matrix:" not in manual_text
     assert matrix_data["version"] == 1
     switches = {row["switch"] for row in matrix_data["rows"]}
     assert {"TP", "PP", "FP8 blockwise training", "Optimizer CPU offload"}.issubset(switches)
@@ -196,19 +198,15 @@ def test_phase3_output_schema_is_externalized():
     assert "standalone" in schema_data["mode_rules"]
 
 
-def test_phase4_output_schema_is_externalized():
+def test_phase4_performance_tuning_schema_is_externalized():
     manual = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase4" / "agent.md"
     schema = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase4" / "phase4_output_schema.yaml"
     manual_text = manual.read_text()
     schema_data = yaml.safe_load(schema.read_text())
 
     assert "references/phases/phase4/phase4_output_schema.yaml" in manual_text
-    assert "Write `phase4_output.yml` to `run_dir/phases/phase4_output.yml`:" not in manual_text
     assert schema_data["phase"] == 4
-    assert schema_data["step_gate"]["mandatory_steps_complete"] is True
-    assert "single_switches" in schema_data
-    assert "combinations" in schema_data
-    assert schema_data["validator"]["name"] == "feature-compat"
+    assert schema_data["validator"]["name"] == "performance-tuning"
 
 
 def test_phase5_output_schema_is_externalized():
@@ -221,34 +219,46 @@ def test_phase5_output_schema_is_externalized():
     assert "Write `phase5_output.yml` to `run_dir/phases/phase5_output.yml`:" not in manual_text
     assert schema_data["phase"] == 5
     assert schema_data["step_gate"]["mandatory_steps_complete"] is True
-    assert "adaptation_final_status" in schema_data
+    assert "single_switches" in schema_data
+    assert "combinations" in schema_data
+    assert schema_data["validator"]["name"] == "feature-compat"
+
+
+def test_phase6_output_schema_is_externalized():
+    manual = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase6" / "agent.md"
+    schema = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase6" / "phase6_output_schema.yaml"
+    manual_text = manual.read_text()
+    schema_data = yaml.safe_load(schema.read_text())
+
+    assert "references/phases/phase6/phase6_output_schema.yaml" in manual_text
+    assert schema_data["phase"] == 6
     assert schema_data["validator"]["name"] == "kb-consistency"
 
 
 def test_phase5_extraction_rules_are_externalized():
-    manual = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase5" / "agent.md"
-    rules = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase5" / "extraction_rules.yaml"
+    manual = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase6" / "agent.md"
+    rules = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase6" / "extraction_rules.yaml"
     manual_text = manual.read_text()
     rules_data = yaml.safe_load(rules.read_text())
 
-    assert "references/phases/phase5/extraction_rules.yaml" in manual_text
+    assert "references/phases/phase6/extraction_rules.yaml" in manual_text
     assert "### 1b. Infer structural_tags from model_spec.yaml" not in manual_text
     assert "### 1d. Build code_paths" not in manual_text
     assert "### 1e. Build omni_reference" not in manual_text
     assert "structural_tags" in rules_data
     assert "code_paths" in rules_data
     assert "omni_reference" in rules_data
-    assert rules_data["source_templates"]["llm"] == "references/phases/phase5/source_templates/llm.yaml"
+    assert rules_data["source_templates"]["llm"] == "references/phases/phase6/source_templates/llm.yaml"
 
 
 def test_phase5_source_templates_are_externalized():
-    manual = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase5" / "agent.md"
-    templates_dir = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase5" / "source_templates"
+    manual = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase6" / "agent.md"
+    templates_dir = PLUGIN_SKILL_ROOT / "references" / "phases" / "phase6" / "source_templates"
     manual_text = manual.read_text()
 
-    assert "references/phases/phase5/source_templates/llm.yaml" in manual_text
-    assert "references/phases/phase5/source_templates/vlm.yaml" in manual_text
-    assert "references/phases/phase5/source_templates/diffusion.yaml" in manual_text
+    assert "references/phases/phase6/source_templates/llm.yaml" in manual_text
+    assert "references/phases/phase6/source_templates/vlm.yaml" in manual_text
+    assert "references/phases/phase6/source_templates/diffusion.yaml" in manual_text
     assert "#### LLM Template" not in manual_text
     for filename in ["llm.yaml", "vlm.yaml", "diffusion.yaml"]:
         data = yaml.safe_load((templates_dir / filename).read_text())
@@ -267,6 +277,7 @@ def test_phase_agents_exist_and_reference_canonical_manuals():
         "adapt-phase3.md": "references/phases/phase3/agent.md",
         "adapt-phase4.md": "references/phases/phase4/agent.md",
         "adapt-phase5.md": "references/phases/phase5/agent.md",
+        "adapt-phase6.md": "references/phases/phase6/agent.md",
     }
     for filename, manual in expected.items():
         path = PLUGIN_ROOT / "agents" / filename
