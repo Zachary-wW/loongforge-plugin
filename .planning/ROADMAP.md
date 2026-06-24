@@ -285,10 +285,10 @@ Critical path: **B1 (gh_helper) → B5 (controller) → B6 (SKILL.md hook) → B
 **Goal:** Insert a new Phase 4 (Performance Tuning) between Loss Diff (Phase 3) and Feature Compat (now Phase 5), orchestrating nsys-profiler for profiling and performance-tuner for optimization. Renumber the current Phase 4 (Feature Compat) to Phase 5 and current Phase 5 (KB Update) to Phase 6. Update all code, schemas, validators, and tests to reflect the 7-phase structure.
 **Requirements**: PH4-01 (new Phase 4 agent + schema), PH4-02 (performance-tuning validator), PH4-03 (FLAKE_RERUN_PHASES update), PH5-RENUM (Phase 4 -> 5 renumbering), PH6-RENUM (Phase 5 -> 6 renumbering + phase4_status), TEST-UPD (test updates)
 **Depends on:** Phase 9
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
-- [ ] 10-01-PLAN.md — New Phase 4 content + directory moves + agent files (Wave 1)
+- [x] 10-01-PLAN.md — New Phase 4 content + directory moves + agent files (Wave 1)
 - [ ] 10-02-PLAN.md — Code + doc updates: validators, range(7), SKILL.md, EXIT_CONTRACT.md, schema_version (Wave 2)
 - [ ] 10-03-PLAN.md — Test updates for 7-phase structure (Wave 3)
 

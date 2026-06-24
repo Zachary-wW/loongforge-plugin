@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-06-24T12:07:35.551Z"
+last_updated: "2026-06-24T14:37:51.825Z"
 progress:
-  total_phases: 9
+  total_phases: 10
   completed_phases: 8
-  total_plans: 23
-  completed_plans: 22
+  total_plans: 26
+  completed_plans: 23
 ---
 
 # STATE.md — Adapt Skill Loop-Engineering Refactor
@@ -31,8 +31,8 @@ progress:
 
 ## Current Position
 
-Phase: 09
-Plan: Not started
+Phase: 10 (integrate-nsys-profiler-and-performance-tuner-as-new-phase-4-renumber-feature-compat-to-phase-5-and-kb-update-to-phase-6) — EXECUTING
+Plan: 2 of 3
 
 - **Milestone**: Adapt Skill Loop-Engineering Refactor (v1)
 - **Phase**: 08 - Phase 2+3 Redesign
@@ -74,6 +74,7 @@ Plan: Not started
 | Phase 08 P01 | 4min | 2 tasks | 2 files |
 | Phase 08 P02 | 4min | 2 tasks | 2 files |
 | Phase 09 P02 | 5min | 2 tasks | 7 files |
+| Phase 10 P01 | 12min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,10 @@ Plan: Not started
 - **Plan 08-01**: Phase 2 Step 0 reads bridge_mapping.conversion_requirements; reference_contract_path is DEPRECATED, absorbed into bridge_mapping (per D-03).
 - **Plan 08-01**: Phase 2 Step 1 uses bridge_mapping.component_bridge[].weight_map as AUTHORITATIVE name map; source discovery overrides on conflict.
 - **Plan 08-01**: phase2_output_schema.yaml adds source.bridge_mapping_path, checks.bridge_mapping_consumed, artifacts.generated_megatron_files.
+
+### Roadmap Evolution
+
+- Phase 10 added: Integrate nsys-profiler and performance-tuner as new Phase 4, renumber Feature Compat to Phase 5 and KB Update to Phase 6
 
 ### Active TODOs
 
