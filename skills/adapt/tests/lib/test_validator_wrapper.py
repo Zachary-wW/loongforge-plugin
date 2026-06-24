@@ -109,7 +109,7 @@ class TestValidatorResult:
 
 class TestConstants:
     def test_flake_rerun_phases(self) -> None:
-        assert FLAKE_RERUN_PHASES == {3, 4}
+        assert FLAKE_RERUN_PHASES == {3, 5}
 
     def test_default_flake_rerun_count(self) -> None:
         assert DEFAULT_FLAKE_RERUN_COUNT == 3
@@ -119,8 +119,9 @@ class TestConstants:
             1: "phase1-verify",
             2: "phase2-conversion",
             3: "loss-diff",
-            4: "feature-compat",
-            5: "kb-consistency",
+            4: "performance-tuning",
+            5: "feature-compat",
+            6: "kb-consistency",
         }
 
 
@@ -254,15 +255,29 @@ class TestShouldRerunForFlake:
         )
         assert should_rerun_for_flake(r, 3) is True
 
-    def test_phase4_threshold_exceeded(self) -> None:
-        """VAL-03: Phase 4 threshold_exceeded -> should rerun."""
-        sig = FailureSignature(kind="threshold_exceeded", location="L1", expected="<0.01", actual="0.015")
-        r = ValidatorResult(
-            name="feature-compat", status="failed",
-            failure_signature=sig, evidence={},
-            integrity_ok=True, integrity_details={},
+    def test_phase4_no_flake_rerun(self) -> None:
+        """Phase 4 performance-tuning is NOT in FLAKE_RERUN_PHASES."""
+        result = ValidatorResult(
+            name="performance-tuning", status="failed",
+            failure_signature=FailureSignature(
+                kind="numerical_mismatch", location="loss",
+                expected="1e-3", actual="2e-3",
+            ),
+            evidence={}, integrity_ok=True, integrity_details={},
         )
-        assert should_rerun_for_flake(r, 4) is True
+        assert should_rerun_for_flake(result, phase=4) is False
+
+    def test_phase5_threshold_exceeded(self) -> None:
+        """Phase 5 feature-compat IS in FLAKE_RERUN_PHASES."""
+        result = ValidatorResult(
+            name="feature-compat", status="failed",
+            failure_signature=FailureSignature(
+                kind="numerical_mismatch", location="loss",
+                expected="1e-3", actual="2e-3",
+            ),
+            evidence={}, integrity_ok=True, integrity_details={},
+        )
+        assert should_rerun_for_flake(result, phase=5) is True
 
     def test_phase1_numerical_no_rerun(self) -> None:
         """Phase 1 numerical mismatch -> no rerun (not in FLAKE_RERUN_PHASES)."""
