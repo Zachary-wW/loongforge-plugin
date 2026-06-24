@@ -149,7 +149,7 @@ weight_structure:
 | Phase 1 Step 3 | `components[*]` + relevant `behavior_modifications[*].affected_existing_modules` | Code generation reference and protected-file routing |
 | Phase 2 | `candidate_family` (Step 1 locates reference convert YAML) + `weight_structure` section (Step 1 module format matching) + `components[*].hf_file/hf_line` + `behavior_modifications` with checkpoint/load/save behavior | Module format matching + convert YAML generation, hook strategy selection, and verification |
 | Phase 3 | `behavior_modifications` with `fp8_reference_load`, `checkpoint_key_transform`, or `mtp_context` | Decide whether plain HF `from_pretrained()` is trustworthy or a custom reference loader is required |
-| Phase 4 | `components[*].hf_file/hf_line` + behavior modifications tagged as `guard`, `routing`, or `mtp_context` | Locate root cause when feature toggle fails |
+| Phase 5 | `components[*].hf_file/hf_line` + behavior modifications tagged as `guard`, `routing`, or `mtp_context` | Locate root cause when feature toggle fails |
 
 ---
 

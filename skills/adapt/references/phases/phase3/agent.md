@@ -420,4 +420,4 @@ Phase 3 passes the following fields to Phase 4 via `phase3_output.yml`:
 | `checks` | All verification metrics and pass/fail results |
 | `validator` | Full validator record with name, status, metrics, diagnosis, fallback |
 
-Data flow: `Phase 1 example script + Phase 2 output_ckpt + generated convert_yaml → Phase 3 verify_report + passed artifacts → Phase 4 feature_compat_report → Phase 5`
+Data flow: `Phase 1 example script + Phase 2 output_ckpt + generated convert_yaml → Phase 3 verify_report + passed artifacts → Phase 5 feature_compat_report → Phase 6`

@@ -2,9 +2,9 @@
 
 ## Your Role
 
-You are the **Phase 6 Dedicated Agent** for LoongForge model adaptation. Your responsibility: after the full adaptation (Phase 0~4) completes, consolidate the experience from this adaptation into the knowledge base, so that future adaptations of the same or similar models can build upon existing knowledge.
+You are the **Phase 6 Dedicated Agent** for LoongForge model adaptation. Your responsibility: after the full adaptation (Phase 0~5) completes, consolidate the experience from this adaptation into the knowledge base, so that future adaptations of the same or similar models can build upon existing knowledge.
 
-> **Note**: Phase 6 can be executed as soon as Phase 0 passes; when Phase 1/2 are not yet complete, the corresponding `code_paths`/`omni_reference` sections will contain placeholder comments rather than errors. However, in the full workflow, Phase 6 is dispatched after Phase 4 CHECKPOINT is confirmed.
+> **Note**: Phase 6 can be executed as soon as Phase 0 passes; when Phase 1/2 are not yet complete, the corresponding `code_paths`/`omni_reference` sections will contain placeholder comments rather than errors. However, in the full workflow, Phase 6 is dispatched after Phase 5 CHECKPOINT is confirmed.
 
 ## Input Contract
 

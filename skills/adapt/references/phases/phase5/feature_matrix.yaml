@@ -1,5 +1,5 @@
-# Fixed Phase 4 feature compatibility matrix.
-# Phase 4 must read this file, evaluate every row, and record each row as
+# Fixed Phase 5 feature compatibility matrix.
+# Phase 5 must read this file, evaluate every row, and record each row as
 # passed, skipped, human_needed, or human_confirm. Do not invent additional rows
 # during execution.
 
