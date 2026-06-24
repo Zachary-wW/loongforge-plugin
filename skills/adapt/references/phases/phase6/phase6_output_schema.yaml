@@ -1,0 +1,93 @@
+# Schema template for phases/phase6_output.yml.
+# Phase 6 fills this after knowledge-base update and kb-consistency pass.
+#
+# v2 additions: source.hf_analysis_path, source.bridge_mapping_path,
+# checks.bridge_mapping_consumed, checks.hf_analysis_consumed
+# These fields are present only when Phase 0 v2 output (three-document) is available.
+# v3 additions: adaptation_status_source.phase4_status (Performance Tuning),
+# adaptation_status_source.phase5_status (renumbered from old phase4_status / Feature Compat)
+
+phase: 6
+status: passed | human_needed
+kb_update_status: passed | human_needed
+adaptation_final_status: passed | human_needed | incomplete
+summary: "Knowledge Base Update: <created|appended> sources/llm/qwen3.yaml, INDEX <updated|skipped>, LOG updated; adaptation final status: <status>"
+attempt: 1
+
+step_gate:
+  mandatory_steps_complete: true
+steps:
+  step1:
+    status: passed
+    evidence: "adaptation data loaded"
+  step2:
+    status: passed
+    evidence: "target source YAML decision"
+  step3:
+    status: passed
+    evidence: "sources YAML update"
+  step4:
+    status: passed
+    evidence: "INDEX.md update"
+  step5:
+    status: passed
+    evidence: "LOG.md update"
+  step6:
+    status: skipped
+    required: false
+    reason: "no QRH candidate needed"
+  step7:
+    status: passed
+    evidence: "kb-consistency validator result"
+
+source:
+  hf_ckpt_path: "<run_inputs.source.hf_ckpt_path>"
+  hf_analysis_path: "<phase0_output.artifacts.hf_analysis_path>"     # NEW (v2) -- present when Phase 0 v2 output exists
+  bridge_mapping_path: "<phase0_output.artifacts.bridge_mapping_path>"  # NEW (v2) -- present when Phase 0 v2 output exists
+
+adaptation_status_source:
+  phase0_status: passed | human_needed | missing
+  phase1_status: passed | human_needed | missing
+  phase2_status: passed | human_needed | missing
+  phase3_status: passed | human_needed | missing
+  phase4_status: passed | human_needed | missing
+  phase5_status: passed | human_needed | missing
+
+model:
+  name: "<run_inputs.options.model_name>"
+  family: "<phase0_output.model.candidate_family>"
+  type: "<phase0_output.model.model_type>"
+
+artifacts:
+  sources_yaml_path: "knowledge_base/sources/<model_cat>/<family>.yaml"
+  index_path: "knowledge_base/INDEX.md"
+  log_path: "knowledge_base/LOG.md"
+  qrh_new: null | "knowledge_base/qrh/<filename>.md"
+  # When Phase 1 v2 output exists, source YAML includes megatron_code_paths section
+
+checks:
+  source_yaml_exists: true
+  index_entry_exists: true
+  log_entry_exists: true
+  required_sections_present: true
+  placeholders_consistent_with_phase_status: true
+  bridge_mapping_consumed: true   # NEW (v2) -- true when bridge_mapping.yaml was read; absent for legacy runs
+  hf_analysis_consumed: true      # NEW (v2) -- true when hf_analysis.yaml was read; absent for legacy runs
+
+validator:
+  name: kb-consistency
+  status: passed
+  attempt: 1
+  failure_gate: null
+  metrics:
+    source_yaml_exists: true
+    index_entry_exists: true
+    log_entry_exists: true
+    required_sections_present: true
+    placeholders_consistent_with_phase_status: true
+  artifacts:
+    - "knowledge_base/sources/<model_cat>/<family>.yaml"
+    - "knowledge_base/INDEX.md"
+    - "knowledge_base/LOG.md"
+  diagnosis: null
+  fallback_phase: null

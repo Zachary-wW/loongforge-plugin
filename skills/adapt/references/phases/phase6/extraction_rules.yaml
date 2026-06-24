@@ -1,13 +1,13 @@
-# Phase 5 knowledge-base extraction rules.
-# Phase 5 Step 1 reads this before writing sources YAML, INDEX.md, or LOG.md.
+# Phase 6 knowledge-base extraction rules.
+# Phase 6 Step 1 reads this before writing sources YAML, INDEX.md, or LOG.md.
 #
-# version: 2 — structural_tags source changed from model_spec.yaml to hf_analysis.yaml;
-#              code_paths source reads generated_loongforge_files + generated_megatron_files;
-#              added megatron_code_paths section; traps source includes bridge_mapping behavioral_diff.
+# version: 3 — Phase 5->6 renumbering; phase4_status renamed to phase5_status;
+#              new phase4_status added for Performance Tuning Phase 4;
+#              source_templates paths updated to phase6/.
 
-version: 2
+version: 3
 purpose: >
-  Extract reusable model-family knowledge from Phase 0-4 outputs, hf_analysis.yaml, and bridge_mapping.yaml
+  Extract reusable model-family knowledge from Phase 0-5 outputs, hf_analysis.yaml, and bridge_mapping.yaml
   into knowledge_base/sources/<model_cat>/<family>.yaml, INDEX.md, and LOG.md.
 
 base_fields:
@@ -26,6 +26,7 @@ base_fields:
   phase2_files: phase2_output.artifacts.generated_files when phase2_output exists
   phase3_status: phase3_output.status when phase3_output exists
   phase4_status: phase4_output.status when phase4_output exists
+  phase5_status: phase5_output.status when phase5_output exists
 
 structural_tags:
   source: run_dir/phases/phase0/hf_analysis.yaml (primary) or run_dir/phases/phase0/model_spec.yaml (legacy fallback)
@@ -215,6 +216,6 @@ append_flow_rules:
   - append new traps after deduplicating by field.
 
 source_templates:
-  llm: references/phases/phase5/source_templates/llm.yaml
-  vlm: references/phases/phase5/source_templates/vlm.yaml
-  diffusion: references/phases/phase5/source_templates/diffusion.yaml
+  llm: references/phases/phase6/source_templates/llm.yaml
+  vlm: references/phases/phase6/source_templates/vlm.yaml
+  diffusion: references/phases/phase6/source_templates/diffusion.yaml

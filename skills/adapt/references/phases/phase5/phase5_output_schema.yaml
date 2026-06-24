@@ -1,15 +1,14 @@
 # Schema template for phases/phase5_output.yml.
-# Phase 5 fills this after knowledge-base update and kb-consistency pass.
+# Phase 5 fills this after feature matrix compatibility validation.
 #
-# v2 additions: source.hf_analysis_path, source.bridge_mapping_path,
-# checks.bridge_mapping_consumed, checks.hf_analysis_consumed
+# v2 additions: source.hf_analysis_path, source.bridge_mapping_path, checks.bridge_mapping_consumed
 # These fields are present only when Phase 0 v2 output (three-document) is available.
+# Legacy Phase 0 output (model_spec.yaml only) omits these fields.
+# v3 additions: source.phase4_optimization_report, source.phase4_best_recipe
 
 phase: 5
 status: passed | human_needed
-kb_update_status: passed | human_needed
-adaptation_final_status: passed | human_needed | incomplete
-summary: "Knowledge Base Update: <created|appended> sources/llm/qwen3.yaml, INDEX <updated|skipped>, LOG updated; adaptation final status: <status>"
+summary: "Feature Compatibility Test: PASS/HUMAN_NEEDED, single switches passed X/Y, combinations passed M/N"
 attempt: 1
 
 step_gate:
@@ -17,74 +16,85 @@ step_gate:
 steps:
   step1:
     status: passed
-    evidence: "adaptation data loaded"
+    evidence: "Phase 3 baseline loaded"
   step2:
     status: passed
-    evidence: "target source YAML decision"
+    evidence: "feature_matrix.yaml"
   step3:
     status: passed
-    evidence: "sources YAML update"
+    evidence: "single switch verification report"
   step4:
     status: passed
-    evidence: "INDEX.md update"
+    evidence: "combined switch verification report"
   step5:
     status: passed
-    evidence: "LOG.md update"
+    evidence: "failure diagnosis/retry summary or no-failure note"
   step6:
-    status: skipped
-    required: false
-    reason: "no QRH candidate needed"
+    status: passed
+    evidence: "feature_compat_report.json"
   step7:
     status: passed
-    evidence: "kb-consistency validator result"
+    evidence: "final feature-compat decision"
 
 source:
-  hf_ckpt_path: "<run_inputs.source.hf_ckpt_path>"
+  hf_ckpt_path: "<phase0_output.source.hf_ckpt_path>"
+  mcore_ckpt: "<phase2_output.artifacts.output_ckpt>"
+  baseline_verify_report: "<phase3_output.artifacts.verify_report_path>"
   hf_analysis_path: "<phase0_output.artifacts.hf_analysis_path>"     # NEW (v2) -- present when Phase 0 v2 output exists
   bridge_mapping_path: "<phase0_output.artifacts.bridge_mapping_path>"  # NEW (v2) -- present when Phase 0 v2 output exists
-
-adaptation_status_source:
-  phase0_status: passed | human_needed | missing
-  phase1_status: passed | human_needed | missing
-  phase2_status: passed | human_needed | missing
-  phase3_status: passed | human_needed | missing
-  phase4_status: passed | human_needed | missing
+  phase4_optimization_report: "<phase4_output.optimization.report_path>"  # Optional -- present when Phase 4 accepted an optimization candidate
+  phase4_best_recipe: "<phase4_output.optimization.best_recipe>"          # Optional -- null when no candidate accepted
 
 model:
   name: "<run_inputs.options.model_name>"
-  family: "<phase0_output.model.candidate_family>"
   type: "<phase0_output.model.model_type>"
+  family: "<phase0_output.model.candidate_family>"
 
 artifacts:
-  sources_yaml_path: "knowledge_base/sources/<model_cat>/<family>.yaml"
-  index_path: "knowledge_base/INDEX.md"
-  log_path: "knowledge_base/LOG.md"
-  qrh_new: null | "knowledge_base/qrh/<filename>.md"
-  # When Phase 1 v2 output exists, source YAML includes megatron_code_paths section
+  feature_compat_report_path: "<run_dir>/phases/phase5/feature_compat_report.json"
+  feature_matrix_path: "<run_dir>/phases/phase5/feature_matrix.yaml"
+  switch_scripts_dir: "<run_dir>/phases/phase5/"
 
 checks:
-  source_yaml_exists: true
-  index_entry_exists: true
-  log_entry_exists: true
-  required_sections_present: true
-  placeholders_consistent_with_phase_status: true
+  applicable_runtime_passed: true
+  non_runtime_rows_justified: true
+  required_combinations_passed: true
   bridge_mapping_consumed: true   # NEW (v2) -- true when bridge_mapping.yaml was read; absent for legacy runs
-  hf_analysis_consumed: true      # NEW (v2) -- true when hf_analysis.yaml was read; absent for legacy runs
+
+single_switches:
+  - category: parallel_strategy
+    switch: TP
+    status: passed | failed | skipped | human_needed
+    support_status: supported | unsupported | skipped | human_needed
+    preflight_status: passed | skipped | human_needed | failed
+    preflight_checks: []
+    preflight_skip_reason: null | "<preflight skip/escalation reason>"
+    script: "<run_dir>/phases/phase5/tp/run.sh"
+    reason: null | "<skip/failure reason>"
+
+combinations:
+  - combo: "TP+PP"
+    status: passed | failed | skipped
+    script: "<run_dir>/phases/phase5/combinations/tp_pp/run.sh"
+
+human_needed:
+  - switch: "<name>"
+    reason: "..."
+    failure_gate: "<gate>"
+    fallback_phase: null | "phase1" | "phase2" | "phase3"
+    reproduce: "bash <run_dir>/phases/phase5/<switch>/run.sh"
 
 validator:
-  name: kb-consistency
+  name: feature-compat
   status: passed
   attempt: 1
   failure_gate: null
   metrics:
-    source_yaml_exists: true
-    index_entry_exists: true
-    log_entry_exists: true
-    required_sections_present: true
-    placeholders_consistent_with_phase_status: true
+    applicable_runtime_passed: true
+    non_runtime_rows_justified: true
+    required_combinations_passed: true
   artifacts:
-    - "knowledge_base/sources/<model_cat>/<family>.yaml"
-    - "knowledge_base/INDEX.md"
-    - "knowledge_base/LOG.md"
+    - "<run_dir>/phases/phase5/feature_compat_report.json"
+    - "<run_dir>/phases/phase5/feature_matrix.yaml"
   diagnosis: null
   fallback_phase: null

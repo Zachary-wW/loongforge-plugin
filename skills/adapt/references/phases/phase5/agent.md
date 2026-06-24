@@ -1,10 +1,11 @@
-# Phase 5 Agent — Knowledge Base Update
+# Phase 5 Agent — Feature Compatibility Test
 
 ## Your Role
 
-You are the **Phase 5 Dedicated Agent** for LoongForge model adaptation. Your responsibility: after the full adaptation (Phase 0~4) completes, consolidate the experience from this adaptation into the knowledge base, so that future adaptations of the same or similar models can build upon existing knowledge.
+You are the **Phase 5 Dedicated Agent** for LoongForge model adaptation.
+Your responsibility is: reuse the Phase 3 passed Loss Diff verification scripts, enable Omni's existing feature switches one by one or in necessary combinations, and verify that the newly adapted model still runs stably without training numerical regression after enabling these features.
 
-> **Note**: Phase 5 can be executed as soon as Phase 0 passes; when Phase 1/2 are not yet complete, the corresponding `code_paths`/`omni_reference` sections will contain placeholder comments rather than errors. However, in the full workflow, Phase 5 is dispatched after Phase 4 CHECKPOINT is confirmed.
+> **Note**: Phase 5 does not redefine baseline correctness criteria. All feature switch verifications use Phase 3's passed scripts, input data, checkpoint, and thresholds as the baseline; any switch failure must retain reproduction commands and log paths, and must not block other switches from continuing verification.
 
 ## Input Contract
 
@@ -12,16 +13,18 @@ Read the following source files at phase start:
 
 | Source File | Required | Key Fields Used |
 |-------------|----------|-----------------|
-| `run_dir/run_inputs.yml` | Yes | `source.hf_ckpt_path`, `options.model_name` |
-| `run_dir/phases/phase0_output.yml` | Yes | `model.candidate_family`, `model.model_type`, `artifacts.hf_analysis_path`, `artifacts.bridge_mapping_path`, `artifacts.model_spec_path` |
-| `run_dir/phases/phase0/hf_analysis.yaml` (via `phase0_output.artifacts.hf_analysis_path`) | Yes (when present) | `model_category`, `candidate_family`, `components`, `structural_tags`, `traps`, `special_features`, `behavior_modifications`, `novel_modules`, `fp32_modules`, `weight_structure` |
-| `run_dir/phases/phase0/bridge_mapping.yaml` (via `phase0_output.artifacts.bridge_mapping_path`) | Yes (when present) | `component_bridge`, `gaps`, `validator_requirements` |
-| `run_dir/phases/phase1_output.yml` | No | `status`, `artifacts.generated_loongforge_files`, `artifacts.generated_megatron_files` |
-| `run_dir/phases/phase2_output.yml` | No | `status`, `artifacts.generated_files` |
-| `run_dir/phases/phase3_output.yml` | No | `status` |
-| `run_dir/phases/phase4_output.yml` | No | `status` |
+| `run_dir/run_inputs.yml` | Yes | `source.hf_ckpt_path`, `paths.omni_path`, `paths.megatron_path`, `options.model_name` |
+| `run_dir/phases/phase0_output.yml` | Yes | `model.model_type` (llm/vlm/diffusion), `model.candidate_family`, `source.hf_ckpt_path` |
+| `run_dir/phases/phase0/hf_analysis.yaml` (via `phase0_output.artifacts.hf_analysis_path`) | Yes (when present) | `model_category`, `components[].structural_tags`, `components[].diff` |
+| `run_dir/phases/phase0/bridge_mapping.yaml` (via `phase0_output.artifacts.bridge_mapping_path`) | Yes (when present) | `component_bridge[].hf`, `component_bridge[].megatron`, `component_bridge[].strategy`, `gaps[]` |
+| `run_dir/phases/phase2_output.yml` | Yes | `artifacts.output_ckpt`, `artifacts.generated_files` |
+| `run_dir/phases/phase3_output.yml` | Yes | `status`, `artifacts.verify_report_path`, `artifacts.run_real_weight_script`, `artifacts.mock_input_path`, `checks`, `validator` |
+| `run_dir/phases/phase4_output.yml` | Optional | `optimization.report_path` (when Phase 4 accepted an optimization candidate), `optimization.best_recipe` (new baseline config) |
+| `run_dir/phases/phase4/` | Optional | `nsys/` (NSys summary directory when profiling was performed) |
 
-When `phase0_output.artifacts.hf_analysis_path` is absent (legacy Phase 0 output), fall back to `phase0_output.artifacts.model_spec_path` for components, structural_tags, traps, special_features. This fallback will be removed in a future version.
+> **Legacy fallback note**: When `hf_analysis_path` or `bridge_mapping_path` is absent (legacy Phase 0 output), fall back to `model_spec.yaml` for the corresponding fields. This fallback will be removed in a future version.
+
+> **Phase 4 handoff note**: When Phase 4 (Performance Tuning) has accepted an optimization candidate (`phase4_output.optimization.best_recipe` is not null), Phase 5 should use the optimized training config as its new baseline instead of the raw Phase 3 baseline. If Phase 4 produced no accepted candidate (`best_recipe: null`), Phase 5 uses Phase 3's passed scripts directly, unchanged.
 
 ## Loop Engineering Hooks
 
@@ -56,294 +59,272 @@ After writing all phase artifacts and before running the validator:
 | State | Description |
 |-------|-------------|
 | `pending` | Phase not started; prerequisites not checked |
-| `reading_data` | Collecting fields from input files, hf_analysis.yaml, and bridge_mapping.yaml |
-| `writing_sources` | Creating or appending sources YAML |
-| `updating_index` | Appending INDEX.md entry |
-| `updating_log` | Appending LOG.md adapt event |
-| `reviewing_qrh` | Reviewing QRH candidates (optional) |
-| `validating` | Running kb-consistency check |
-| `passed` | Knowledge base update complete and consistent |
+| `reading_baseline` | Reading Phase 3 baseline scripts, config, checkpoint |
+| `building_matrix` | Generating feature matrix from model_type and capabilities |
+| `executing_singles` | Running single switch verification one by one |
+| `executing_combos` | Running combined switch verification |
+| `diagnosing` | Diagnosing failed switch (env/config/code/convert) |
+| `validating` | Validator evaluating feature-compat overall result |
+| `passed` | All applicable switches and combinations passed |
 | `human_needed` | Unresolvable without human intervention |
 
 ### Transition Table
 
 | From | To | Condition |
 |------|----|-----------|
-| `pending` | `reading_data` | Phase 0 output exists and is `passed` |
-| `pending` | `human_needed` | Phase 0 not `passed` |
-| `reading_data` | `writing_sources` | All required fields extracted |
-| `writing_sources` | `updating_index` | Sources YAML written or appended |
-| `writing_sources` | `human_needed` | File write failure (locked, permissions) |
-| `updating_index` | `updating_log` | INDEX.md updated or entry already exists |
-| `updating_log` | `reviewing_qrh` | LOG.md updated |
-| `reviewing_qrh` | `validating` | QRH review complete (skipped or confirmed) |
-| `validating` | `passed` | kb-consistency passes |
-| `validating` | `writing_sources` | Inconsistency detected, repair and re-validate |
-| `validating` | `human_needed` | Repair blocked |
+| `pending` | `reading_baseline` | Phase 3 output exists and is `passed` |
+| `pending` | `human_needed` | Phase 3 not `passed`, or required artifacts missing |
+| `reading_baseline` | `building_matrix` | Baseline scripts, checkpoint, mock input recovered |
+| `reading_baseline` | `human_needed` | Phase 3 baseline not recoverable |
+| `building_matrix` | `executing_singles` | Feature matrix generated |
+| `executing_singles` | `executing_combos` | All single switches completed (pass/fail/skip) |
+| `executing_singles` | `diagnosing` | Single switch failure needs diagnosis |
+| `diagnosing` | `executing_singles` | Repair successful → re-run that switch |
+| `diagnosing` | `human_needed` | Root cause requires Phase 1/2/3 fallback, or max retries reached |
+| `executing_combos` | `validating` | All combinations completed |
+| `executing_combos` | `diagnosing` | Combination failure needs diagnosis |
+| `validating` | `passed` | Validator `feature-compat` passes |
+| `validating` | `diagnosing` | Repairable failures remain |
+| `validating` | `human_needed` | Unrepairable failures or max attempts reached |
 
 ### Local Repair Loop
 
 ```
-validating → writing_sources (fix inconsistency) → validating (re-check)
-validating → human_needed (repair blocked)
+executing_singles → diagnosing → executing_singles (retry same switch, max per-switch retry_limit)
+executing_combos → diagnosing → executing_combos (retry same combo)
+diagnosing → human_needed (fallback to phase1/2/3 or unsupported)
 ```
 
-Max 3 repair attempts. On each repair, only modify the inconsistent file; do not touch other knowledge base files.
+On repair, only modify the switch-specific test script under `phases/phase5/<switch>/`. Do not modify the original Phase 3 baseline script or Phase 1 generated scripts.
 
 ## Prerequisites
 
-`phase0_output.status` must be `passed`, otherwise immediately transition to `human_needed`: `Phase 0 is not complete; cannot extract family information`.
+`phase3_output.status` must be `passed`. Otherwise immediately transition to `human_needed`: `Phase 3 is not complete or has not passed; cannot enter feature compatibility test`.
+
+`phase3_output.artifacts.run_real_weight_script` and `phase2_output.artifacts.output_ckpt` must be recoverable before Step 1. If missing, transition to `human_needed: Phase 5 baseline is incomplete`.
 
 ---
 
 ## Phase Exit Contract
 
-Before execution, read `knowledge_base/schema/EXIT_CONTRACT.md`. Phase 5 may return top-level `passed` only when the knowledge-base consistency validator `kb-consistency` passes in the latest iteration.
+Before execution, read `knowledge_base/schema/EXIT_CONTRACT.md`. Phase 5 may return top-level `passed` only when the authoritative validator `feature-compat` passes in the latest iteration.
 
-`kb-consistency` is a lightweight consistency check over the files written or appended by this phase. It does not perform numerical validation and does not decide whether the full adaptation succeeded. Validator `failed` means the Phase 5 Agent must repair sources YAML, INDEX, or LOG consistency and rerun the check. Validator `human_needed` stops the phase and must include the failed gate, evidence, artifacts/logs, and `fallback_phase` when applicable.
+`feature-compat` is the fixed feature-matrix execution and compatibility validation across Steps 2-7. Every fixed matrix row must have a result; applicable runtime switches and required combinations must pass; non-applicable or non-runtime rows must be skipped or human-confirmed with concrete evidence. Validator `failed` means the Phase 5 Agent must repair retryable environment/resource/configuration issues and rerun the affected switch or combination. Validator `human_needed` stops the phase and must include the failed gate, evidence, artifacts/logs, and `fallback_phase` when applicable.
 
-Phase 5 output must separate KB update status from full adaptation status. `kb_update_status=passed` means the knowledge-base files are consistent. `adaptation_final_status` is derived from Phase 0-4 outputs and must remain `human_needed` or `incomplete` when any required earlier phase is not passed, even if KB consistency passes. `failed` may appear only in nested validator or switch evidence, not as a final adaptation or phase status.
+Fallback rules:
+- Phase 3 baseline missing or stale -> `human_needed` with `fallback_phase="phase3"`
+- Feature failure caused by Phase 1 generated model code -> `human_needed` with `fallback_phase="phase1"`
+- Feature failure caused by conversion YAML or checkpoint mapping -> `human_needed` with `fallback_phase="phase2"`
+- Unsupported feature or missing fixture/resource after retry budget -> `human_needed` with `fallback_phase=null`
+
+---
+
+## Execution Rules
+
+**Output Redirection**: All per-switch and per-combo training execution must redirect stdout and stderr to log files under `phases/phase5/<switch>/logs/`. Extract only structured result lines (loss values, pass/fail) from log files after execution. Do not let training output flood your context.
+
+**Attempt Journaling**: Before each switch retry, append a compact record to `phases/phase5/<switch>/attempts.jsonl`:
+```json
+{"attempt": 1, "action": "adjusted --tensor-model-parallel-size from 2 to 4", "result": "failed", "metric": "OOM at layer 12", "note": "TP=4 needs more GPU memory than available"}
+```
+Before modifying a switch's test script, read that switch's `attempts.jsonl` to avoid retrying directions already disproved.
+
+**Structured Results Only**: Your return JSON must contain only structured data (status, step_trace, metrics, artifact paths, per-switch summaries). Do NOT include raw training logs, full stack traces (truncate to 10 lines + log path), or tensor values. Full logs are persisted in `phases/phase5/<switch>/logs/` for human review.
+
+## Tools and Scripts
+
+| Script/Skill | Purpose |
+|-----------|------|
+| `references/phases/phase3/loss_diff.md` | Reuse Phase 3 Loss Diff criteria for feature switch numerical regression verification |
+| `references/tools/linter-check/SKILL.md` | Used only after fallback Phase 1 changes model code and Phase 5 is re-entered |
+| `references/tools/code-review/SKILL.md` | Used only after fallback Phase 1 changes model code and Phase 5 is re-entered |
+| `references/phases/phase2/verify.md` | Used only after fallback Phase 2 changes conversion artifacts and Phase 5 is re-entered |
 
 ---
 
 ## Execution Progress Table
 
-> **Execution rule: follow steps in order; output a marker after each step completes; do not skip steps.**
+> **Execution rule: first build the feature matrix, then verify switches one by one; each switch must be independently recorded; do not skip remaining switches due to a single switch failure.**
 
 | Step | Name | Description |
 |------|------|------|
-| 1 | Read adaptation data | Collect required fields from input files, hf_analysis.yaml, and bridge_mapping.yaml |
-| 2 | Determine target file | Check if sources YAML already exists, decide create or append flow |
-| 3 | Write sources YAML | Create full file, or only append missing traps/code_paths/omni_reference |
-| 4 | Update INDEX.md | Append new model entry in the Sources section (skip if already exists) |
-| 5 | Update LOG.md | Append adapt event record at the end |
-| 6 | QRH candidate content review (optional) | Review operational issues encountered during this adaptation, propose QRH additions, wait for manual confirmation before writing |
-| 7 | Knowledge-base consistency check | Run `kb-consistency` over sources YAML, INDEX, LOG, and placeholder status |
+| 1 | Read Phase 3 baseline | Locate passed shell scripts, configuration, checkpoint, mock input, thresholds |
+| 2 | Build feature matrix | Generate switches to test, enable method, dependencies/mutually exclusive relationships, retry limits |
+| 3 | Execute Single Switch Verification | Copy baseline each time, enable only one feature switch and run loss-diff |
+| 4 | Execute Combined Switch Verification | After single switches pass, verify necessary combinations per dependency relationships |
+| 5 | Failure Diagnosis and Retry | Locate environment/resource/configuration/code/convert/operator issues; retry only environment/resource/temporary configuration issues inside Phase 5 |
+| 6 | Write feature_compat_report.json | Aggregate PASS / FAILED / HUMAN_NEEDED and reproduction commands |
+| 7 | Determine result | Provide overall phase status `passed` / `human_needed`; keep `failed` only for per-switch or validator retry evidence |
 
 **Step Completion Protocol**:
 - Each step completed → output `✓ Step N — <one-sentence result>`, then proceed to the next step
-- Each step failed → output `✗ Step N — <root cause>`, enter HUMAN_NEEDED flow
-- **Step 6 is optional**: When there are no candidate items, output `✓ Step 6 — No new QRH candidates`; when there are candidates, wait for manual confirmation; confirmation result does not affect overall `status`
-- Step 7 is mandatory for Phase 5 pass. Phase 5 top-level `passed` is prohibited unless `validator.name == "kb-consistency"` and `validator.status == "passed"` in the latest iteration.
+- Each switch completed → output `✓ Feature [<name>] — PASS` or `✗ Feature [<name>] — <root cause>`
+- Each step failed → output `✗ Step N — <root cause>`, enter the retry or HUMAN_NEEDED flow for that step
+- Each step skipped → output `⊘ Step N — <skip reason>`, then proceed to the next step
+- **It is forbidden to proceed to the next step without outputting a marker**
 
 ---
 
-## Step 1: Read Adaptation Data
+## Execution Steps
 
-Read the structured extraction rules in:
+### Step 1 — Read Phase 3 baseline
+
+Read `phase3_output.artifacts.verify_report_path` and confirm the following fields are recoverable:
+- `run_config.hf_path` (from `phase0_output.source.hf_ckpt_path`)
+- `run_config.mcore_ckpt` (from `phase2_output.artifacts.output_ckpt`)
+- `run_config.convert_yaml` (resolved from `phase2_output.artifacts.generated_files`)
+- `run_config.reference_type` (from `phase3_output.model.reference_type`)
+- `run_config.reference_framework` (from `phase3_output.model.reference_framework`)
+- Phase 3 passed mock input, Omni training script, reference-side script, threshold configuration
+
+If `phase3_output.artifacts` does not contain enough to recover:
+1. Look for Phase 3 actual run scripts from `phase3_output.artifacts.verify_report_path` and `run_dir/phases/phase3/`.
+2. Recover `run_real_weight_script`, `mock_input_path`, checkpoint path (`phase2_output.artifacts.output_ckpt`), and thresholds from the report.
+3. If reproducible commands cannot be recovered, transition to `human_needed`.
+
+### Step 2 — Build feature matrix
+
+Steps 2-7 together form the authoritative `feature-compat` validator. Phase 5 can pass only when the latest `feature-compat` result passes.
+
+Generate `run_dir/phases/phase5/feature_matrix.yaml` based on `phase0_output.model.model_type`, `model_spec.yaml`, Phase 3 baseline script, existing YAML configuration, and Omni capability support.
+
+Phase 5 must reuse Phase 3 scripts directly: for each switch, copy the Phase 3 baseline script to `run_dir/phases/phase5/<switch>/run.sh`, then append or override only the switch under test. Do not synthesize a new training command and do not change unrelated baseline parameters, mock input, checkpoint, or thresholds.
+
+Each switch must include:
+- `name`: Switch name
+- `category`: `parallel_strategy` | `data_capability` | `feature`
+- `source_doc`: source document path when the switch comes from `docs/source/features/`; `phase5_builtin` for TP/EP/PP/VPP/SFT Packing
+- `applies_to`: model types / structures where the switch is applicable: `llm`, `vlm`, `diffusion`, `moe`, `dense`, `vision_encoder`, `language_model`, `all`
+- `activation_type`: `script_args` | `script_env` | `copied_yaml` | `script_args+copied_yaml` | `not_phase5_runtime`
+- `parameters_to_add`: exact CLI arguments appended to the copied Phase 3 script
+- `parameters_to_override`: exact CLI arguments or YAML keys replaced in the copied Phase 3 script/config
+- `yaml_overrides`: underscore-form YAML keys when the switch is configured in the copied YAML
+- `env_to_set`: environment variables inserted before the copied Phase 3 command; empty when not required
+- `baseline_script`: Baseline script copied from Phase 3
+- `test_script`: Test script path after enabling the switch
+- `dependencies`: Prerequisites
+- `mutually_exclusive`: Mutually exclusive switches
+- `retry_limit`: Retry limit (default 5)
+- `expected_status`: `supported` / `unsupported` / `human_confirm`
+- `support_status`: `supported|unsupported|human_needed|skipped`
+- `support_evidence`: command path, log path, source doc path, loss/grad metrics, or skip reason
+- `preflight_status`: `passed|skipped|human_needed|failed`
+- `preflight_checks`: concrete feasibility checks evaluated before execution
+- `preflight_skip_reason`: null when preflight passes, otherwise the exact reason execution was skipped or escalated
+
+Phase 5 switch selection and execution is table-driven:
+1. Read structure tags for feature matrix evaluation. **PRIMARY source**: `phase0_output.artifacts.hf_analysis_path` (hf_analysis.yaml). **SECONDARY source**: `phase0_output.artifacts.bridge_mapping_path` (bridge_mapping.yaml). **Legacy fallback**: `phase0_output.model.model_type` + `model_spec.yaml` (used only when hf_analysis_path is absent).
+
+Structure tag derivation from hf_analysis:
+- `is_llm`: `hf_analysis.model_category == "llm"`
+- `is_vlm`: `hf_analysis.model_category == "vlm"`
+- `is_diffusion`: `hf_analysis.model_category == "diffusion"`
+- `is_moe`: `hf_analysis.components` contains an entry with key `moe_gate` or `moe_layer`, OR any component has `structural_tags` containing `moe`
+- `is_dense`: NOT is_moe AND (is_llm OR is_vlm)
+- `has_vision_encoder`: `hf_analysis.components` contains an entry with key `vision_encoder` or `image_encoder`, OR any component has `structural_tags` containing `vision_encoder` or `vit`
+- `has_language_ce_loss`: is_llm OR (is_vlm AND `hf_analysis.components` contains `language_model`)
+- `has_sft_data`: determined from run_inputs or baseline config (not from hf_analysis)
+- `has_visual_mock_input`: determined from Phase 3 baseline artifacts (not from hf_analysis)
+
+Cross-reference from bridge_mapping: When bridge_mapping_path is present, verify that component types derived from hf_analysis are consistent with bridge_mapping.component_bridge entries. For each component_bridge entry, the `hf` field should correspond to a key in hf_analysis.components. If a component appears in bridge_mapping but not in hf_analysis, log a warning but do not fail.
+
+These derived tags are used to evaluate the `applies_to` field in each feature_matrix.yaml row. The evaluation logic is unchanged: OR semantics (any listed tag true = applicable), AND semantics for dependencies, mutually exclusive checking.
+
+Step 2 sub-item 2 (GPU count and parallelism metadata) remains unchanged -- it still reads from `model_spec.yaml` or the copied YAML config for num_layers, num_query_groups, etc. These are runtime configuration values not available in hf_analysis.
+2. Detect available GPU count via `nvidia-smi -L | wc -l` or equivalent; derive `num_layers`, `num_query_groups`, and relevant parallelism metadata from `model_spec.yaml` or the copied YAML config. Use these to pre-filter parallel-strategy rows before execution: skip TP/PP/VPP when `available_gpus < required_world_size`, skip PP when `num_layers < pipeline_model_parallel_size * 2`.
+3. Start from `references/phases/phase5/feature_matrix.yaml`; do not invent extra switches during execution.
+4. For each row, evaluate `applies_to` as OR semantics: the row is applicable when any listed tag is true, or when it contains `all`. Then evaluate `dependencies` as AND semantics: every dependency must be satisfied before execution. If any `mutually_exclusive` switch has already been selected for the same run, skip the row and record the conflict.
+5. Run row-specific preflight before creating a runnable script:
+   - TP: if the model uses grouped/shared-query attention, confirm `num_query_groups % tensor_model_parallel_size == 0` unless a model-specific TP replication strategy is documented in `model_spec.yaml` or the family source YAML. If not feasible, record `preflight_status=human_needed` or `skipped` with the exact `num_query_groups` and TP value instead of launching an invalid config.
+   - PP: confirm `num_layers` can form non-empty pipeline stages for the chosen `pipeline_model_parallel_size`; record layer count and stage layout evidence.
+   - VPP: confirm the PP layout is valid first, then confirm `num_virtual_stages_per_pipeline_rank` can form valid virtual stages; record the virtual-stage calculation.
+   - FP8 rows: confirm native FP8-capable hardware, TransformerEngine FP8 availability, and a resource suitability note before launch. Missing hardware/library is recorded as `skipped` or `human_needed` according to matrix semantics, not as an unexplained runtime failure.
+6. If not applicable or pre-filtered by GPU/layer/config feasibility, create a `result.json` with `status=skipped` or `human_needed`, `support_status` matching the outcome, `preflight_status`, `preflight_checks`, and a concrete `preflight_skip_reason`.
+7. If applicable and `activation_type != not_phase5_runtime`, copy the Phase 3 script to the row's `test_script`, then apply only the row's `parameters_to_add`, `parameters_to_override`, `yaml_overrides`, and `env_to_set`.
+8. If applicable but required resources or fixtures are missing, mark `support_status=human_needed` and keep the reproduction command / missing fixture in `support_evidence`.
+9. If `activation_type=not_phase5_runtime`, do not run loss-diff; record `human_confirm` or `skipped` with the source document and reason.
+
+Parameter editing rules:
+- Prefer CLI override in the copied `run.sh` when the baseline script already uses CLI flags.
+- If the row has `copied_yaml` or `script_args+copied_yaml`, copy the YAML referenced by `--config-file` into the switch directory, apply only the row's `yaml_overrides`, and update only the copied `run.sh` to reference the copied YAML.
+- When enabling TP/EP/PP/VPP, adjust only the copied script's distributed launcher size (`torchrun --nproc_per_node`, `NNODES`, or equivalent variables) so `world_size >= tensor_model_parallel_size * pipeline_model_parallel_size * expert_model_parallel_size`; do not alter data, checkpoint, mock input, or thresholds.
+- If a baseline script already sets the same argument, replace that argument in the copied script instead of appending a duplicate.
+- If the baseline contains a negating flag for the tested feature, remove only that negating flag from the copied script and record it in `parameters_to_override`.
+
+Fixed Phase 5 switch matrix is maintained in:
 
 ```text
-references/phases/phase5/extraction_rules.yaml
+references/phases/phase5/feature_matrix.yaml
 ```
 
-Use that file to extract base fields, infer `structural_tags`, collect `diff_components`, convert traps, build `code_paths`, and build `omni_reference`. It also defines model-category differences for LLM, VLM, and Diffusion, placeholder behavior when Phase 1 or Phase 2 has not passed, append-flow rules, and the source templates to use in Step 3.
+Read that file in full before Step 3. It contains the fixed matrix rows, source documents, applies-to tags, activation types, parameters/YAML/env changes, dependencies, skip rules, and verification methods. Do not invent extra switches during execution.
 
-Read structured data from Phase 0 v2 output:
+The feature group must include every row in the fixed matrix. Rows may be `passed`, `skipped`, `human_needed`, or `human_confirm`, but they must not be silently omitted.
 
-**PRIMARY sources** (when `phase0_output.artifacts.hf_analysis_path` is present):
-- From **hf_analysis.yaml**: `model_category`, `candidate_family`, `components` (key, diff, strategy, delta, structural_tags, hf_class), `traps`, `special_features`, `behavior_modifications`, `novel_modules`, `fp32_modules`
-- From **bridge_mapping.yaml**: `component_bridge` (each entry: hf, megatron, strategy, confidence, behavioral_diff, delta), `gaps` (each entry: id, component, decision, impact, phase1_guidance)
+### Step 3 — Execute Single Switch Verification
 
-**Legacy fallback** (when `phase0_output.artifacts.hf_analysis_path` is absent):
-- From **model_spec.yaml**: `candidate_family`, `model_type`, `components`, `vlm_components`, `traps`, `special_features`, `behavior_modifications`
+For each row in `feature_matrix.yaml`:
 
-**Phase 1 file lists** (when phase1_output exists):
-- `phase1_output.artifacts.generated_loongforge_files` -- LoongForge file paths for code_paths
-- `phase1_output.artifacts.generated_megatron_files` -- Megatron file paths for megatron_code_paths (NEW)
+1. If the row was filtered out by `applies_to`, create `run_dir/phases/phase5/<switch>/result.json` with `status=skipped`, `support_status=skipped`, source row, and skip reason; do not create a runnable script.
+2. If `activation_type=not_phase5_runtime`, create `result.json` with `status=skipped` or `status=human_confirm`, record source doc and the non-runtime verification path; do not modify the Phase 3 script.
+3. Otherwise copy the Phase 3 baseline script to `run_dir/phases/phase5/<switch>/run.sh`.
+4. Apply only the row's declared `parameters_to_add`, `parameters_to_override`, `yaml_overrides`, and `env_to_set`; if these fields are empty for an applicable runtime row, set `support_status=human_needed` instead of guessing parameters.
+5. Record the exact final command line and copied YAML diff in that switch's `result.json` before execution.
+6. Run loss-diff using the same mock input, checkpoint, reference implementation, and thresholds as Phase 3; optimizer features must additionally run one optimizer step because their documented behavior is not verified by forward-only loss.
+7. Write the final result to `run_dir/phases/phase5/<switch>/result.json`.
 
-When phase1_output exists but `generated_megatron_files` is absent (legacy Phase 1 output), fall back to `generated_files` for LoongForge paths and omit megatron_code_paths.
+Judgment:
+- PASS: Phase 3 loss-diff thresholds for that feature pass; record `status=passed`, `support_status=supported`.
+- FAILED: Runtime failure or numerical threshold exceeded; proceed to Step 5 diagnosis.
+- SKIPPED: Model structure not applicable or feature matrix marks as unsupported; record `status=skipped`, `support_status=skipped` or `unsupported`, and the reason.
+- HUMAN_NEEDED: enablement method is unclear, environment capability is unknown, missing fixtures/resources cannot be supplied, or diagnosis reaches retry limit; record `support_status=human_needed`.
 
-When using hf_analysis + bridge_mapping as primary sources:
-- `traps` come from `hf_analysis.traps` (string list, same format as model_spec.traps)
-- `special_features` come from `hf_analysis.special_features` (dict format, same as model_spec.special_features)
-- Additional trap-like entries can be derived from `bridge_mapping.component_bridge[].behavioral_diff`: each behavioral_diff entry with `impact: high` or `impact: critical` becomes a trap entry with `field=topic` and `detail="HF: <hf> / Megatron: <megatron>"`.
-- Deduplication: if a behavioral_diff topic overlaps with an existing trap `field`, prefer the existing trap entry.
+### Step 4 — Execute Combined Switch Verification
 
-When using model_spec.yaml as legacy fallback: traps extraction is unchanged from current behavior.
+Execute combined verification only after all relevant single switches have passed.
 
-Step 1 is complete only when all fields required by the selected source template are either populated from Phase outputs/hf_analysis/bridge_mapping or explicitly represented by the placeholder rules from `extraction_rules.yaml`.
+Combination strategy:
+- Only combine switches that are explicitly present in the fixed matrix and whose single-switch verification has passed.
+- First test parallelism-related combinations: TP + PP, TP + VPP, and MoE + EP when applicable.
+- Then test feature/runtime combinations declared by dependencies: FP8 + optimizer feature, FP8 + MoE A2A overlap, MoE A2A overlap + MoE selective recompute/offload.
+- Do not create combinations involving switches that are not matrix rows. For combinations declared as mutually exclusive in `mutually_exclusive`, skip directly and record `skipped_reason`.
 
----
+Combined verification still reuses Phase 3 loss-diff criteria; results are written to `run_dir/phases/phase5/combinations/<combo>/result.json`.
 
-## Step 2: Determine Target File
+### Step 5 — Failure Diagnosis and Retry
 
-```
-target_path = knowledge_base/sources/<model_cat>/<family>.yaml
-```
+When a single switch fails, locate the root cause in the following order:
 
-- If the file **does not exist** → execute Step 3 "create" flow
-- If the file **already exists** → execute Step 3 "append" flow (do not overwrite existing content)
+1. **Environment / Resource issue**: OOM, NCCL timeout, GPU fault, missing environment variable → first consult `knowledge_base/qrh/gpu_resource_adjustment.md` or `knowledge_base/qrh/environment_setup.md` then retry.
+2. **Configuration issue**: Missing YAML field, CLI argument conflict, invalid parallelism → only modify that switch's test script or temporary configuration.
+3. **Model code issue**: `_layer_spec.py` / `_model.py` not integrated with the interface required by the feature → do not patch model code inside Phase 5; return `human_needed` with `fallback_phase="phase1"`, failed switch evidence, reproduction command, and logs.
+4. **Weight conversion issue**: Enabling the switch requires additional weight key or shape mapping → do not patch conversion artifacts inside Phase 5; return `human_needed` with `fallback_phase="phase2"`, failed switch evidence, reproduction command, and logs.
+5. **Phase 3 baseline invalidation**: baseline script, checkpoint, mock input, or reference-mode thresholds are stale or unrecoverable → return `human_needed` with `fallback_phase="phase3"`.
+6. **Operator missing or semantically unsupported**: Omni currently has no corresponding implementation, or the model structure is inherently incompatible → mark that switch as `HUMAN_NEEDED` with `fallback_phase=null`.
 
----
+Each switch retries up to `retry_limit` times. After reaching the limit, record `HUMAN_NEEDED` and continue to the next switch.
 
-## Step 3: Write sources YAML
+### Step 6 — Write feature_compat_report.json
 
-### Create Flow
+Write all results to `run_dir/phases/phase5/feature_compat_report.json`.
 
-Create the file from the model-category template under:
+The report must include:
+- Baseline source: Phase 3 `verify_report.json`, script paths, thresholds
+- Feature matrix path
+- Per single switch result: category, status, support_status, preflight_status, preflight_checks, preflight_skip_reason, command, log, loss / backward metrics, failure reason
+- Per combination result: status, support_status, command, log, loss / backward metrics, failure reason
+- Retry records: temporary script/config changes, verification commands, and whether fallback to Phase 1 / Phase 2 / Phase 3 is required
+- `HUMAN_NEEDED` list: reason, reproduction command, suggested next step, `failure_gate`, and `fallback_phase`
+- `validator`: `feature-compat` status, attempt, metrics, commands, logs, artifacts, diagnosis, and `fallback_phase`
 
-```text
-references/phases/phase5/source_templates/llm.yaml
-references/phases/phase5/source_templates/vlm.yaml
-references/phases/phase5/source_templates/diffusion.yaml
-```
+### Step 7 — Determine result
 
-Populate all template fields from Step 1. Preserve placeholder comments when Phase 1 or Phase 2 has not passed. If `traps` is empty, write `traps: []`.
+Overall status determination:
+- All applicable runtime switches and necessary combinations pass, and non-runtime rows are recorded as `skipped` or `human_confirm` with evidence → final `passed`
+- Any applicable runtime switch reaches `HUMAN_NEEDED`, or Phase 3 baseline is not recoverable → final `human_needed`
+- Runtime/environment/configuration failure that remains retryable after the current attempt is recorded as attempt/validator `failed`, repaired locally, and rerun; it is not a final Phase 5 status.
 
-Template selection:
-- `model_cat == "llm"` -> `source_templates/llm.yaml`
-- `model_cat == "vlm"` -> `source_templates/vlm.yaml`
-- `model_cat == "diffusion"` -> `source_templates/diffusion.yaml`
-
-### Append Flow (File Already Exists)
-
-**Only append, do not modify existing content**. Check and supplement in the following order:
-
-1. **code_paths section does not exist** → Insert complete `code_paths` section before the `traps` section using the template for `model_cat` (`LLM` / `VLM` / `Diffusion`)
-2. **VLM and code_paths section exists but missing `encoder` field** → Append `encoder: <path>` at the end of the `code_paths` section (path from Step 1d; if phase1 did not pass, append `encoder: # Phase 1 not complete, to be supplemented`)
-3. **omni_reference section does not exist** → Append complete `omni_reference` section at the end of the file using the template for `model_cat` (`LLM` / `VLM` / `Diffusion`)
-4. **New traps (from Step 1c)** → Deduplicate and append to the end of the `traps` section
-   - Deduplication rule: If a trap entry with the same `field` already exists, skip that entry
-   - Append format consistent with existing entries
-
-### Migration-Mode KB Updates
-
-If the source YAML already declares `migration:` (i.e. this run was a reference-patchset migration), Phase 5 must keep that contract live and current:
-
-1. Update `migration.reference_root`, `migration.reference_omni_path`, `migration.reference_megatron_path`, `migration.baseline_script`, `migration.lossdiff_bundle`, and `migration.lite_checkpoint` to match what Phase 0/3 actually used. If the reference root has rotated, bump these in place — do not duplicate the `migration:` block.
-2. Reconcile `migration.forbidden_megatron_files` and `migration.forbidden_megatron_strings` with whatever the migration verifier actually rejected during Phase 1/3. If new strings were added to the verifier, mirror them here so future runs catch the same drift.
-3. Reconcile `migration.allowed_megatron_diff.files` with the final Phase 3 `git diff --name-only` for the Megatron tree. Record any addition with a one-line `description` of why the diff is generic and default-off.
-4. Update `validation.required_evidence` so that every gate the run actually needed is listed (random-init smoke, real-checkpoint smoke, same-batch lossdiff, migration verifier passing on the final tree). Do **not** drop evidence types just because a single run skipped them.
-5. Never replace the `migration:` block with a generic Phase 5 template — the migration contract is the source of truth for whether this family can be reproduced from scratch in a later checkout.
-
-
----
-
-## Step 4: Update INDEX.md
-
-File path: `knowledge_base/INDEX.md`
-
-1. Locate the corresponding category under `## Sources` section: `### LLM`, `### VLM`, or `### Diffusion` based on `model_cat`.
-2. If the category heading does not exist, append the heading under `## Sources` before adding the entry.
-3. Check if a `[<family>]` entry already exists.
-4. **If not** → Append after the last line in that category:
-   ```
-   - [<family>](sources/<model_cat>/<family>.yaml) — <one-sentence architecture summary>
-   ```
-   One-sentence summary generation rule: List key features where `structural_tags` are true (e.g., `MLA+MoE+MTP`), then add a brief summary of the most important trap (no more than 20 characters). For diffusion models, summarize the primary diffusion/component tags from `model_spec.yaml`; if unavailable, write `Diffusion model adaptation reference`.
-5. **If already exists** → Skip, output `Entry [<family>] already exists, skipped`
-
----
-
-## Step 5: Update LOG.md
-
-File path: `knowledge_base/LOG.md`
-
-Append the following content at the **end** of the file (only append, do not modify existing entries):
-
-```markdown
-## [<YYYY-MM-DD>] adapt | <model_name>
-- sources/<model_cat>/<family>.yaml: <created|appended (traps +N, code_paths <new|existing>, omni_reference <new|existing>)>
-- Phase status: P0 ✅ / P1 <✅|❌|⚠️> / P2 <✅|❌|⚠️> / P3 <✅|❌|⚠️|–> / P4 <✅|❌|⚠️|–>
-- Major diff components: <list component names with diff=differs, comma-separated; if none, write none>
-- New traps count: <N>
-```
-
-Date format: `YYYY-MM-DD` (current system date).
-
-Phase status symbol mapping:
-- `passed` → `✅`
-- `human_needed` → `❌`
-- missing phase output file → `–`
-- legacy `failed` → `❌`
-
-`–` indicates that phase was not run (no corresponding output file).
-
----
-
-## Step 6: QRH Candidate Content Review (Optional)
-
-> **Goal**: Review **operational-level issues** encountered during this adaptation (GPU resources, environment variables, etc.). If there are new issues not covered by existing QRH, propose candidate content for manual confirmation before writing.
-
-### 6a. Determine if there are QRH candidates
-
-Check the following sources for **cross-model common operational issues**:
-
-1. Whether any phase output has `failed` or retry records
-2. Whether GPU/environment errors (OOM, NCCL timeout, ModuleNotFoundError, etc.) appeared in the current conversation context
-3. The issue was ultimately resolved successfully (with reusable fix steps)
-
-**QRH Candidate Criteria** (all must be satisfied):
-
-| Condition | Description |
-|------|------|
-| Not model-specific | The issue is unrelated to model code/weights; any model could encounter it |
-| Operational in nature | GPU resources, environment variables, dependency packages, network connectivity, and other infrastructure issues |
-| Not covered by existing QRH | Comparing against existing documents under `knowledge_base/qrh/`, there is no corresponding entry |
-| Has reusable fix steps | The fix method is clear and can be documented to guide subsequent agents |
-
-If **no candidate content** → output `✓ Step 6 — No new QRH candidates`, done.
-
-### 6b. Draft Candidate Content
-
-If candidate content is found, output in the following format for manual review:
-
-```
-⚙️ QRH Candidate Content (pending manual confirmation)
-
-Target file: knowledge_base/qrh/<filename>.md (create new)
-        or: knowledge_base/qrh/<existing_filename>.md (append to "## Common Symptoms" or add new scenario section)
-
----
-<Complete Markdown content draft>
----
-
-Write to file? Please reply:
-  - "Confirm write" → execute Step 6c
-  - "Skip" or no reply → skip, Step 6 marked as skipped
-```
-
-> **Note**: Propose at most **1** QRH candidate at a time (prioritize the most impactful, most universal issue), to avoid accumulating too much content at once.
-
-### 6c. Write QRH (executed after manual confirmation)
-
-After receiving "Confirm write":
-
-1. **Write file**:
-   - Create new → create `knowledge_base/qrh/<filename>.md` with the draft content
-   - Append → append content at the appropriate position in the existing file
-
-2. **Update INDEX.md** QRH section (append entry at the end of the `## QRH` section):
-   ```
-   - [<filename without extension>](qrh/<filename>.md) — <one-sentence description of scenario and core operation>
-   ```
-
-3. **Update LOG.md**, append an `update` event:
-   ```markdown
-   ## [<YYYY-MM-DD>] update | QRH addition: <filename>
-   - Created/Updated: knowledge_base/qrh/<filename>.md — <one-sentence description of new content>
-   - Trigger source: <problem_type> encountered during <model_name> adaptation
-   ```
-
-4. Output `✓ Step 6 — Written qrh/<filename>.md and updated INDEX.md / LOG.md`
-
----
-
-## Step 7: Knowledge-base consistency check
-
-Run the `kb-consistency` validator after Step 6 completes or is skipped. This validator checks KB consistency only; it must not convert a failed or blocked adaptation into a passed adaptation.
-
-Pass conditions:
-- Target source YAML exists at `knowledge_base/sources/<model_cat>/<family>.yaml`
-- `knowledge_base/INDEX.md` has the corresponding `[<family>](sources/<model_cat>/<family>.yaml)` entry
-- `knowledge_base/LOG.md` has an adaptation event for `<model_name>` on the current date
-- Source YAML contains or explicitly placeholders these sections: `hf_reference`, `structural_tags`, `code_paths`, `omni_reference`, `traps`
-- If Phase 1 status is `passed`, `code_paths` must not remain a Phase 1 placeholder
-- If Phase 2 status is `passed`, `omni_reference` must not remain a Phase 2 placeholder
-- If Phase 3 or Phase 4 status is `passed`, the LOG phase status line must reflect that passed status
-- If Phase 1 status is `passed`, `megatron_code_paths` section must exist in the source YAML (in addition to `code_paths`)
-
-If any check fails, repair the inconsistent file and rerun `kb-consistency`. If repair is blocked by file permissions or ambiguous source data, return `human_needed` with `validator.status="human_needed"`, `failure_gate="kb_consistency"`, evidence, artifacts/logs, and `fallback_phase=null`.
+Phase 5 top-level `passed` is prohibited unless `validator.name == "feature-compat"` and `validator.status == "passed"` in the latest iteration. Phase 5 final output status is only `passed` or `human_needed`; `failed` is reserved for switch/validator attempt records while retries are still available.
 
 ---
 
@@ -357,25 +338,27 @@ Write `phase5_output.yml` to `run_dir/phases/phase5_output.yml`.
 references/phases/phase5/phase5_output_schema.yaml
 ```
 
-The schema covers step-gate evidence, KB update status, full adaptation status source, model metadata, updated KB artifacts, consistency checks, and the authoritative `kb-consistency` validator result. Final `phase.status` remains `status: passed | human_needed`; `adaptation_final_status` may additionally be `incomplete` when earlier phase outputs are missing.
+The schema covers step-gate evidence, Phase 3 baseline source metadata, generated feature compatibility artifacts, single-switch results, combination results, human-needed reproductions, checks, and the authoritative `feature-compat` validator result. Final `phase.status` remains `status: passed | human_needed`; `failed` is only a per-switch or validator retry signal.
 
-When Phase 0 v2 output exists, the output must include:
-- `source.hf_analysis_path` -- path to the hf_analysis.yaml consumed
-- `source.bridge_mapping_path` -- path to the bridge_mapping.yaml consumed
-- `checks.bridge_mapping_consumed: true` -- confirms bridge_mapping was read
-- `checks.hf_analysis_consumed: true` -- confirms hf_analysis was read
+When Phase 0 v2 output (three-document) is available, the output MUST include:
+- `source.hf_analysis_path`: `<phase0_output.artifacts.hf_analysis_path>` (present when Phase 0 v2 output exists)
+- `source.bridge_mapping_path`: `<phase0_output.artifacts.bridge_mapping_path>` (present when Phase 0 v2 output exists)
+- `checks.bridge_mapping_consumed`: `true` (when bridge_mapping was read and used; absent for legacy runs)
+
+When `hf_analysis_path` or `bridge_mapping_path` is absent (legacy runs), these fields are omitted from the output. The validator skips corresponding checks.
 
 ---
 
 ## Error Handling
 
-| Situation | Handling |
-|------|------|
-| Phase 0 not completed | Immediately `human_needed` with `validator.status="human_needed"`, `failure_gate="phase0_prerequisite"`, evidence/artifacts/logs, and `fallback_phase="phase0"` |
-| hf_path/config.json does not exist | Write `unknown` for `model_type` field, continue |
-| hf_path/config.json top-level has no `vocab_size` (common for VLM, nested in `text_config`)| Read from `text_config.vocab_size` instead; if still failing, write `null # TODO: requires manual confirmation` |
-| sources YAML write failure (file locked, etc.) | `human_needed`: provide complete YAML content for manual writing and set validator `failure_gate="source_yaml_write"`, `fallback_phase=null` |
-| INDEX.md / LOG.md write failure | `human_needed`: provide append content for manual writing and set validator `failure_gate="index_or_log_write"`, `fallback_phase=null` |
-| kb-consistency failed after repair attempt | `human_needed`: provide failed checks, artifacts/logs, and set `failure_gate="kb_consistency"`, `fallback_phase=null` |
-| traps is empty (model_spec.yaml has no traps section) | Normal, write `traps: []` to file, continue |
-| `ModuleNotFoundError` / missing environment variable | **First consult `knowledge_base/qrh/environment_setup.md`**, fix PYTHONPATH per module→path mapping then retry |
+| Situation | Status | Blocks Subsequent Switches | Notes |
+|------|--------|----------------|------|
+| Phase 3 not completed or not passed | `human_needed` | Yes | Return `validator.status="human_needed"`, `failure_gate="phase3_prerequisite"`, evidence/artifacts/logs, and `fallback_phase="phase3"` |
+| Phase 3 passed scripts not recoverable | `human_needed` | Yes | Return `failure_gate="phase3_baseline_unrecoverable"`, evidence/artifacts/logs, and `fallback_phase="phase3"` |
+| Single switch runtime failure exceeds retry limit | That switch `human_needed` | No | Record reproduction command, logs, `failure_gate`, `fallback_phase=null`, and continue other switches |
+| Single switch loss / backward exceeds threshold | That switch `human_needed` | No | Auto-produce diff diagnosis, record logs/artifacts, and continue other switches unless root cause requires fallback |
+| Combined switches mutually exclusive | That combo `skipped` | No | Must record mutually exclusive reason |
+| Model code issue | `human_needed` | Yes | Return switch evidence and `fallback_phase="phase1"`; do not patch Phase 1 code inside Phase 5 |
+| Conversion/checkpoint issue | `human_needed` | Yes | Return switch evidence and `fallback_phase="phase2"`; do not patch conversion artifacts inside Phase 5 |
+| GPU job OOM / GPU fault / NCCL timeout | `failed` then retry | No | First adjust resources per QRH; after reaching retry limit, mark that switch `human_needed` with `fallback_phase=null` |
+| `ModuleNotFoundError` / missing environment variable | `failed` then retry | No | First fix PYTHONPATH / environment variable per QRH |
