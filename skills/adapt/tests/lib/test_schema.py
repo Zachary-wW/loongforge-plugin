@@ -49,7 +49,9 @@ def test_legacy_v1_round_trip():
     d = _legacy_v1_dict()
     model = RunInputs.model_validate(d)
     dumped = model.model_dump(exclude_none=True, mode="json")
-    assert dumped == d
+    # schema_version defaults to "2" on load from legacy v1 dicts (no schema_version key)
+    expected = {**d, "schema_version": "2"}
+    assert dumped == expected
 
 
 def test_legacy_v1_no_repos_loop_engineering_disabled():
