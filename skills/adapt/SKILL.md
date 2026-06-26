@@ -14,7 +14,7 @@ This skill operates in two modes. When `repos:` is present in `run_inputs.yml`, 
 
 ## Loop-First Architecture
 
-When `repos:` is present in `run_inputs.yml`, the skill operates as a loop-engineering system: every code change goes through a closed loop on external GitHub repos (LoongForge and Loong-Megatron) until all phase validators pass. The loop does not adapt the model -- it adapts the plugin's own bugs out. The plugin itself is what the loop fixes.
+When `repos:` is present in `run_inputs.yml`, the skill operates as a loop-engineering system: every code change goes through a closed loop on external GitHub repos (LoongForge and Loong-Megatron) until all phase validators pass. The loop does not adapt the model — it adapts the plugin's own bugs out.
 
 ### Three Nested Loops
 
@@ -23,8 +23,6 @@ When `repos:` is present in `run_inputs.yml`, the skill operates as a loop-engin
 | Inner | Phase-internal self-repair (`attempts.jsonl`) | Disk files |
 | Middle | GitHub PR/issue cycle (loop controller) | GitHub (`gh` CLI) |
 | Outer | Multi-model replay (future) | Run directory |
-
-Key insight: "The plugin itself is what the loop fixes." The loop doesn't adapt the model; it adapts the plugin's own bugs out.
 
 ### 12-State FSM
 

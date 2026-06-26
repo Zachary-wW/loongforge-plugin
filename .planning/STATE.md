@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-06-24T15:10:56.582Z"
+status: complete
+last_updated: "2026-06-26T12:00:00.000Z"
 progress:
   total_phases: 10
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 26
-  completed_plans: 25
+  completed_plans: 26
 ---
 
 # STATE.md — Adapt Skill Loop-Engineering Refactor
@@ -23,21 +23,15 @@ progress:
 
 **Core Value**: The adaptation process MUST be a closed loop — every code change goes through PR → review → merge → validate → (on fail) issue → fix-PR; the loop only exits when all phase validators pass. Everything else (schemas, helpers, docs) serves this loop.
 
-**Current Focus**: Phase 7 Plan 3 complete — all Phase 7 plans executed, phase ready for verification.
-
 **Working Branch**: `refactor/adapt-loop-engineering` (per PROJECT.md).
 
 ---
 
 ## Current Position
 
-Phase: 10
-Plan: Not started
-
-- **Milestone**: Adapt Skill Loop-Engineering Refactor (v1)
-- **Phase**: 08 - Phase 2+3 Redesign
-- **Status**: Plan 01 complete, Plan 02 next (Phase 3 agent.md rewrite)
-- **Progress**: `[█████████░] 87%, 20/23 plans complete`
+- **Milestone**: Adapt Skill Loop-Engineering Refactor (v1) — **COMPLETE**
+- **Progress**: `[██████████] 100%, 26/26 plans complete`
+- **Status**: All 10 development phases executed. 430+ pytest tests green. Ready for GPU-machine acceptance (DS V4 runbook).
 
 ---
 
@@ -45,11 +39,12 @@ Plan: Not started
 
 | Metric | Value |
 |--------|-------|
-| Phases planned | 5 |
-| Phases complete | 0 |
-| Requirements mapped | 43/43 |
-| Plans created | 4 |
-| Plans complete | 4 |
+| Phases planned | 10 |
+| Phases complete | 10 |
+| Requirements mapped | 67/67 |
+| Plans created | 26 |
+| Plans complete | 26 |
+| Pytest tests | 430+ |
 
 ---
 | Phase 01 P01 | 6min | 2 tasks | 13 files |
@@ -64,15 +59,16 @@ Plan: Not started
 | Phase 04 P02 | 16min | 2 tasks | 9 files |
 | Phase 05 P01 | 4min | 2 tasks | 2 files |
 | Phase 05 P02 | 371s | 2 tasks | 6 files |
-| Phase 06-phase0-redesign P02 | 8min | 2 tasks | 5 files |
 | Phase 06 P01 | 12min | 2 tasks | 6 files |
-| Phase 06-phase0-redesign P03 | 686s | 2 tasks | 7 files |
-| Phase 07-phase1-redesign P02 | 5min | 2 tasks | 3 files |
+| Phase 06 P02 | 8min | 2 tasks | 5 files |
+| Phase 06 P03 | 686s | 2 tasks | 7 files |
 | Phase 07 P01 | 7min | 2 tasks | 2 files |
-| Phase 07-phase1-redesign P03 | 2min | 2 tasks | 2 files |
-| Phase 09 P01 | 2min | 2 tasks | 3 files |
+| Phase 07 P02 | 5min | 2 tasks | 3 files |
+| Phase 07 P03 | 2min | 2 tasks | 2 files |
 | Phase 08 P01 | 4min | 2 tasks | 2 files |
 | Phase 08 P02 | 4min | 2 tasks | 2 files |
+| Phase 08 P03 | — | 2 tasks | 2 files |
+| Phase 09 P01 | 2min | 2 tasks | 3 files |
 | Phase 09 P02 | 5min | 2 tasks | 7 files |
 | Phase 10 P01 | 12min | 3 tasks | 12 files |
 | Phase 10 P02 | 7min | 3 tasks | 11 files |
@@ -100,7 +96,7 @@ Plan: Not started
 - **Plan 02-02**: find_by_dedup_key and find_by_idempotency_key are separate methods: dedup key for cross-attempt issue dedup, idempotency key for crash-resume.
 - **Plan 02-02**: Human commit detection uses git log --format=%ae per D-01; open_pr posts /agent-resume comment on existing PR before raising HumanCommitError.
 - PR/issue loop applies only to the two external repos (LoongForge + Loong-Megatron); plugin itself is not part of the loop.
-- Validator set frozen: union of existing per-phase validators (`phase1-verify`, `phase2-conversion`, `loss-diff`, `feature-compat`, `kb-consistency`); no unified validator.
+- Validator set frozen: union of existing per-phase validators (`phase1-verify`, `phase2-conversion`, `loss-diff`, `performance-tuning`, `feature-compat`, `kb-consistency`); no unified validator.
 - Skip `/gsd:map-codebase`; researcher targets `skills/adapt/` + se.rpcx.io 04/08/12.
 - Mode: yolo + coarse + inherit-model + researcher/plan-checker/verifier all on.
 - **Plan 03-01**: FakeGhClient._run added with _sha_store for simulated SHA lookups.
@@ -131,47 +127,51 @@ Plan: Not started
 - **Plan 08-01**: Phase 2 Step 0 reads bridge_mapping.conversion_requirements; reference_contract_path is DEPRECATED, absorbed into bridge_mapping (per D-03).
 - **Plan 08-01**: Phase 2 Step 1 uses bridge_mapping.component_bridge[].weight_map as AUTHORITATIVE name map; source discovery overrides on conflict.
 - **Plan 08-01**: phase2_output_schema.yaml adds source.bridge_mapping_path, checks.bridge_mapping_consumed, artifacts.generated_megatron_files.
+- **Plan 08-02**: Phase 3 agent.md uses bridge_mapping_path as PRIMARY input; reference_contract_path DEPRECATED (absorbed into bridge_mapping per D-05).
+- **Plan 08-02**: Phase 3 Step 0 reads bridge_mapping.implementation_contract, conversion_requirements, phase3_reference_requirements, validator_requirements.
+- **Plan 08-02**: Phase 3 output schema adds source.bridge_mapping_path, checks.bridge_mapping_consumed.
+- **Plan 08-03**: validate_phase_completion.py updated with Phase 2+3 bridge_mapping_consumed checks, source.bridge_mapping_path verification, and phase3_reference_requirements dict check.
+- **Plan 09-01**: Phase 4 agent.md reads hf_analysis_path + bridge_mapping_path from Phase 0 output; uses component_bridge[].hf/megatron/strategy for profiling scope.
+- **Plan 09-02**: Phase 5 agent.md reads hf_analysis.yaml + bridge_mapping.yaml; feature matrix derived from model_category, components, and gaps.
+- **Plan 10**: New Phase 4 (Performance Tuning) inserted between Phase 3 and Phase 5 (Feature Compat). Phase 5→6 (KB Update) renumbered. FLAKE_RERUN_PHASES updated to {3, 5}.
 
 ### Roadmap Evolution
 
 - Phase 10 added: Integrate nsys-profiler and performance-tuner as new Phase 4, renumber Feature Compat to Phase 5 and KB Update to Phase 6
-
-### Active TODOs
-
-- [ ] Run `/gsd:plan-phase 1` to decompose Phase 1 into executable plans.
+- All 10 development phases complete as of 2026-06-26
 
 ### Blockers
 
 None.
 
-### Open Questions (from research; resolve during planning)
+### Open Questions (resolved during execution)
 
-- Default values for `max_attempts_per_phase` (suggest 5) and `max_attempts_per_run` (suggest 25) — confirm during Phase 3 planning.
-- Branch protection rules on `Zachary-wW/LoongForge:main` and `Zachary-wW/Loong-Megatron:loong-main/core_v0.15.0` — probe at preflight in Phase 1.
-- Auto-merge vs review-required for base PR — likely review-required for default branches, auto for staging branches; confirm in Phase 2.
-- Reviewer sub-agent (`adapt-phaseN-diagnose`): reuse issue-loop reviewer from commit `95c916f` verbatim, or fork? — confirm in Phase 3.
-- Whether autonomous mode is allowed to merge to default branch directly, or must always go via `staging/run-<id>` — confirm in Phase 3.
+- Default budget values confirmed: max_attempts_per_phase=5, max_attempts_per_run=25, max_wallclock_minutes=240 — implemented in schema.py LoopBudget defaults.
+- Branch protection: probed at preflight; hard-fail vs warn-only split implemented in Plan 01-02.
+- Auto-merge vs review-required: review-required for default branches, auto for staging branches — enforced by PR-01 (direct push refusal) + PR-02 (base must merge before validate).
+- Reviewer sub-agent: separate Diagnose classifier in diagnose_classifier.py (read-only) — implemented in Plan 03-01.
+- Autonomous mode: exits `autonomous_blocked` not `human_needed` when budget exhausted — implemented in LoopBudget.escalation field.
 
 ---
 
 ## Session Continuity
 
-**Last session ended**: 2026-06-24, after Phase 8 Plan 01 complete. Stopped at: Completed 08-01-PLAN.md.
+**Last session ended**: 2026-06-26, after review + CLAUDE.md/README.md rewrite + STATE/ROADMAP sync.
 
-**Next session should**:
+**Next steps** (post-milestone):
 
-1. Execute Phase 8 Plan 02: Rewrite Phase 3 agent.md with bridge_mapping consumption.
-2. Execute Phase 8 Plan 03: Update validate_phase_completion.py with Phase 2+3 checks.
-3. Verify Phase 8 consistency across all modified files.
+1. GPU-machine acceptance: run DS V4 adaptation per `references/acceptance/ds_v4_runbook.md`
+2. Diff against community reference version
+3. Merge `refactor/adapt-loop-engineering` → `main`
 
 **Files of record**:
 
 - `.planning/PROJECT.md` — vision, constraints, decisions
 - `.planning/REQUIREMENTS.md` — REQ-IDs (with traceability table)
-- `.planning/ROADMAP.md` — 5 phases + success criteria + coverage
+- `.planning/ROADMAP.md` — 10 phases + success criteria + coverage
 - `.planning/STATE.md` — this file
 - `.planning/research/{SUMMARY,STACK,ARCHITECTURE,PITFALLS,FEATURES}.md` — research artifacts
 
 ---
 
-*Last updated: 2026-06-24 after Phase 8 Plan 01 complete.*
+*Last updated: 2026-06-26 after full project review and planning document sync.*

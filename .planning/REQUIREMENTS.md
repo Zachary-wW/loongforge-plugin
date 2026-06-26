@@ -106,7 +106,7 @@ Date: 2026-06-22
 
 ## Traceability
 
-Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans, no duplicates).
+Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 67/67 ✓ (no orphans, no duplicates).
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
@@ -154,3 +154,32 @@ Mapped by `.planning/ROADMAP.md` on 2026-06-22. Coverage: 43/43 ✓ (no orphans,
 | TEST-02 | Phase 1 | Complete |
 | TEST-03 | Phase 1 | Complete |
 | TEST-04 | Phase 4 | Complete |
+| P0R-01 | Phase 6 | Complete |
+| P0R-02 | Phase 6 | Complete |
+| P0R-03 | Phase 6 | Complete |
+| P0R-04 | Phase 6 | Complete |
+| P0R-05 | Phase 6 | Complete |
+| P0R-06 | Phase 6 | Complete |
+| P0R-07 | Phase 6 | Complete |
+| P0R-08 | Phase 6 | Complete |
+| P0R-09 | Phase 6 | Complete |
+| P1R-01 | Phase 7 | Complete |
+| P1R-02 | Phase 7 | Complete |
+| P1R-03 | Phase 7 | Complete |
+| P1R-04 | Phase 7 | Complete |
+| P1R-05 | Phase 7 | Complete |
+| P1R-06 | Phase 7 | Complete |
+| P2R-01 | Phase 8 | Complete |
+| P2R-02 | Phase 8 | Complete |
+| P2R-03 | Phase 8 | Complete |
+| P3R-01 | Phase 8 | Complete |
+| P3R-02 | Phase 8 | Complete |
+| P4R-01 | Phase 9 | Complete |
+| P5R-01 | Phase 9 | Complete |
+| P5R-02 | Phase 9 | Complete |
+| PH4-01 | Phase 10 | Complete |
+| PH4-02 | Phase 10 | Complete |
+| PH4-03 | Phase 10 | Complete |
+| PH5-RENUM | Phase 10 | Complete |
+| PH6-RENUM | Phase 10 | Complete |
+| TEST-UPD | Phase 10 | Complete |

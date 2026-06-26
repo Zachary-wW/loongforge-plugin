@@ -16,8 +16,8 @@ Created: 2026-06-22
 - [x] **Phase 5: Documentation, KB & Run Finalization** — SKILL.md rewrite, `loop_engineering/README.md` citing rpcx.io 04/08/12, per-run comprehension summary, label hygiene
 - [x] **Phase 6: Phase 0 Redesign — Dual-Reference Bridge Analysis** — Redesign Phase 0 from single-side HF analysis to three-document output (hf_analysis.yaml, reference_impl_analysis.yaml, bridge_mapping.yaml) with Megatron-side analysis, deterministic bridge mapping, gap detection, and quality inner loop
 - [x] **Phase 7: Phase 1 Redesign — Dual-Repo Consumption, Generation & Verification** — Redesign Phase 1 to consume bridge_mapping as primary input, support dual-repo code generation (LoongForge + Megatron), add perf guard rails, strengthen verification with HF sanity run and shared-seed init, integrate Loop FSM exit path
-- [ ] **Phase 8: Phase 2+3 Redesign — Weight Conversion & Loss-Diff Bridge Consumption** — Redesign Phase 2 and Phase 3 agent.md to consume bridge_mapping as primary input, support dual-repo file consumption, migrate from deprecated reference_contract_path/model_spec_path
-- [ ] **Phase 9: Phase 4+5 Redesign — Feature Compat & KB Bridge Consumption** — Redesign Phase 4 and Phase 5 agent.md to consume bridge_mapping/hf_analysis, add Megatron file paths to KB extraction
+- [x] **Phase 8: Phase 2+3 Redesign — Weight Conversion & Loss-Diff Bridge Consumption** — Redesign Phase 2 and Phase 3 agent.md to consume bridge_mapping as primary input, support dual-repo file consumption, migrate from deprecated reference_contract_path/model_spec_path
+- [x] **Phase 9: Phase 4+5 Redesign — Feature Compat & KB Bridge Consumption** — Redesign Phase 4 and Phase 5 agent.md to consume bridge_mapping/hf_analysis, add Megatron file paths to KB extraction
 
 ---
 
@@ -51,8 +51,8 @@ Created: 2026-06-22
   4. Issue creation contains structured `failure_signature`, log excerpt + collapsed full log, `attempts.jsonl` link, and reproduction command (ISSUE-01); same `(phase, validator_name, failure_signature)` reuses the open issue and appends a comment instead of duplicating (ISSUE-03); every fix-PR closes its issue on merge (ISSUE-02).
   5. All bot-created PRs/issues carry labels `loongforge-adapt`, `run-<id>`, `phase-<N>`; opening, commenting on, closing, and re-finding artifacts each work end-to-end against `FakeGhClient` in pytest (ISSUE-04).
 **Plans**: 2 plans
-- [ ] 01-PLAN.md — Idempotency module + template module (Wave 1)
-- [ ] 02-PLAN.md — RealGhClient lifecycle + FakeGhClient state machine + test suite (Wave 2)
+- [x] 01-PLAN.md — Idempotency module + template module (Wave 1)
+- [x] 02-PLAN.md — RealGhClient lifecycle + FakeGhClient state machine + test suite (Wave 2)
 
 ### Phase 3: Loop Controller — FSM, Budgets & Validator Discipline
 **Goal**: A Python loop controller drives `Probe → Edit → PR → Merge(base) → Validate → (Diagnose → Issue → Fix-PR → Review → Merge → Rerun)*` per phase with hard budgets, maker-checker separation, validator-integrity checks, and structured failure signatures — exiting only on a verifiable validator-pass or a bounded escalation. This is the FSM spine.
@@ -110,7 +110,7 @@ Created: 2026-06-22
   6. Phase 1 and Phase 2 agent.md input contracts reference bridge_mapping_path as primary input (with legacy model_spec_path fallback). reference_contract_schema.yaml has deprecation notice.
 **Plans**: 3 plans
 - [x] 06-01-PLAN.md — Three-document schemas (Pydantic v2 + YAML templates) + Phase 0 agent.md rewrite (Wave 1)
-- [ ] 06-02-PLAN.md — Megatron reference analyzer skill + example YAML files + KB extension (Wave 1)
+- [x] 06-02-PLAN.md — Megatron reference analyzer skill + example YAML files + KB extension (Wave 1)
 - [x] 06-03-PLAN.md — Validation gate update + downstream Phase 1/2 contract updates + deprecation notes (Wave 2)
 
 ### Phase 7: Phase 1 Redesign — Dual-Repo Consumption, Generation & Verification
@@ -147,7 +147,7 @@ Created: 2026-06-22
 **Plans**: 3 plans
 - [x] 08-01-PLAN.md — Phase 2 agent.md rewrite + phase2_output_schema.yaml (Wave 1)
 - [x] 08-02-PLAN.md — Phase 3 agent.md rewrite + phase3_output_schema.yaml (Wave 1)
-- [ ] 08-03-PLAN.md — validate_phase_completion.py Phase 2+3 checks (Wave 2)
+- [x] 08-03-PLAN.md — validate_phase_completion.py Phase 2+3 checks (Wave 2)
 
 ### Phase 9: Phase 4+5 Redesign — Feature Compat & KB Bridge Consumption
 **Goal**: Redesign Phase 4 and Phase 5 agent.md to consume bridge_mapping/hf_analysis for structure tags and component data, and add Megatron file paths to KB extraction logic.
@@ -178,8 +178,9 @@ Created: 2026-06-22
 | 5. Docs & Finalization | 2/2 | Complete | 2026-06-22 |
 | 6. Phase 0 Redesign | 3/3 | Complete | 2026-06-24 |
 | 7. Phase 1 Redesign | 3/3 | Complete | 2026-06-24 |
-| 8. Phase 2+3 Redesign | 0/3 | Planned |  |
-| 9. Phase 4+5 Redesign | 0/2 | Planned |  |
+| 8. Phase 2+3 Redesign | 3/3 | Complete | 2026-06-24 |
+| 9. Phase 4+5 Redesign | 2/2 | Complete | 2026-06-24 |
+| 10. nsys-profiler/perf-tuner | 3/3 | Complete | 2026-06-24 |
 
 ---
 
