@@ -174,6 +174,11 @@ def validate_phase_output(run_dir: Path, phase: int) -> None:
     if phase == 1:
         # --- Phase 1 specific checks (conditional for backward compat) ---
         checks = data.get("checks", {})
+        validation_scope = data.get("validation_scope") or _nested(data, "validator", "metrics", "validation_scope")
+        _expect(
+            validation_scope != "static_codegen_only",
+            "Phase 1 cannot pass with validation_scope=static_codegen_only; full native code generation and phase1-verify evidence are required",
+        )
 
         # 1. Bridge mapping consumption check
         bridge_mapping_consumed = checks.get("bridge_mapping_consumed")

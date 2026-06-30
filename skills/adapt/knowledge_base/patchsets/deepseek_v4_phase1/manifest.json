@@ -1,0 +1,37 @@
+{
+  "loongforge_files": [
+    "loongforge/models/foundation/deepseek_v4/__init__.py",
+    "loongforge/models/foundation/deepseek_v4/deepseek_v4_attention.py",
+    "loongforge/models/foundation/deepseek_v4/deepseek_v4_config.py",
+    "loongforge/models/foundation/deepseek_v4/deepseek_v4_csa.py",
+    "loongforge/models/foundation/deepseek_v4/deepseek_v4_layer_spec.py",
+    "loongforge/models/foundation/deepseek_v4/deepseek_v4_model.py",
+    "loongforge/models/foundation/deepseek_v4/deepseek_v4_rope.py",
+    "configs/models/deepseek4/deepseek_v4_flash_base.yaml",
+    "configs/models/deepseek4/deepseek_v4_flash_base_lite_4l_mtp1.yaml",
+    "configs/models/deepseek4/deepseek_v4_flash_base_sliced.yaml",
+    "configs/models/deepseek4/deepseek_v4_flash_base_sliced_2l.yaml",
+    "configs/models/deepseek4/deepseek_v4_flash_base_sliced_6l.yaml",
+    "examples/deepseek_v4/pretrain/pretrain_deepseek_v4_fp8.sh",
+    "examples/deepseek_v4/finetune/finetune_deepseek_v4_fp8.sh"
+  ],
+  "megatron_files": [
+    "megatron/core/transformer/experimental_attention_variant/absorbed_mla.py",
+    "megatron/core/transformer/experimental_attention_variant/csa.py",
+    "megatron/core/transformer/experimental_attention_variant/deepseek_v4_hybrid_attention.py",
+    "megatron/core/transformer/experimental_attention_variant/dsa.py",
+    "megatron/core/transformer/experimental_attention_variant/dsa_kernels.py",
+    "megatron/core/transformer/hyper_connection.py",
+    "megatron/core/transformer/moe/moe_layer.py",
+    "megatron/core/transformer/moe/moe_utils.py",
+    "megatron/core/transformer/moe/router.py",
+    "megatron/core/transformer/transformer_config.py",
+    "megatron/core/transformer/transformer_layer.py",
+    "megatron/core/pipeline_parallel/fine_grained_activation_offload.py",
+    "megatron/core/transformer/torch_norm.py",
+    "megatron/core/typed_torch.py",
+    "megatron/core/fusions/fused_mla_yarn_rope_apply.py",
+    "megatron/core/models/gpt/experimental_attention_variant_module_specs.py",
+    "megatron/core/models/gpt/gpt_model.py"
+  ]
+}

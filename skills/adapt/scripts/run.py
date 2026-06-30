@@ -41,6 +41,7 @@ from skills.adapt.lib.schema import (
 )
 from skills.adapt.lib.preflight import run_preflight, format_failures
 from skills.adapt.lib.gh_client import RealGhClient, FakeGhClient
+from skills.adapt.scripts.phase0_bootstrap import bootstrap_phase0
 
 
 # -- run_inputs.yml schema ---------------------------------------------------
@@ -198,9 +199,11 @@ def clear_phase_output(run_dir: str, phase_num: int) -> None:
     for output_yml in (phase_output_path(run_dir, phase_num), legacy_phase_output_path(run_dir, phase_num)):
         if output_yml.exists():
             output_yml.unlink()
-    attempts = Path(run_dir) / "phases" / f"phase{phase_num}" / "attempts.jsonl"
-    if attempts.exists():
-        attempts.unlink()
+    phase_dir = Path(run_dir) / "phases" / f"phase{phase_num}"
+    for transient in ("attempts.jsonl", "loop_state.yml", "escalation.md"):
+        path = phase_dir / transient
+        if path.exists():
+            path.unlink()
 
 
 # -- Init / Resume -----------------------------------------------------------
@@ -325,6 +328,14 @@ def print_context(run_dir: str, inputs: dict) -> None:
     )
 
 
+def run_phase0_bootstrap(run_dir: str) -> None:
+    """Generate deterministic Phase 0 artifacts for local, non-agent runs."""
+    outputs = bootstrap_phase0(Path(run_dir))
+    print("[Phase0 bootstrap] Wrote static analysis artifacts:")
+    for name, path in outputs.items():
+        print(f"  {name}: {path}")
+
+
 # -- CLI ---------------------------------------------------------------------
 
 def main(argv=None):
@@ -388,6 +399,12 @@ def main(argv=None):
         metavar="N",
         help="Used with --resume, restart from the specified phase (0/1/2/3/4/5/6)",
     )
+    parser.add_argument(
+        "--bootstrap-phase0",
+        action="store_true",
+        help="Generate deterministic Phase 0 analysis artifacts after init/resume. "
+             "This is a local fallback when /loongforge:adapt phase agents are unavailable.",
+    )
     args = parser.parse_args(argv)
 
     # All-or-nothing URL validation: if any URL flag is provided, all four must be.
@@ -430,6 +447,8 @@ def main(argv=None):
 
         if from_phase is not None:
             print(f"[Reset] Starting from Phase {from_phase}; cleared stale phase results from Phase {from_phase} onward")
+        if args.bootstrap_phase0:
+            run_phase0_bootstrap(args.resume)
         print_context(args.resume, inputs)
     else:
         if not args.hf_path:
@@ -485,6 +504,8 @@ def main(argv=None):
             loop=loop_dict,
             dry_run=args.dry_run,
         )
+        if args.bootstrap_phase0:
+            run_phase0_bootstrap(run_dir)
         print(f"[Initialized] run_dir created: {run_dir}")
         print_context(run_dir, inputs)
 

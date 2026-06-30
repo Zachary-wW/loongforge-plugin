@@ -413,6 +413,19 @@ def run_phase_loop(
 
         # --- EDIT: transition to PR ---
         case FSMState.EDIT:
+            if phase == 1:
+                try:
+                    from skills.adapt.scripts.phase1_codegen import generate_phase1_fallback
+
+                    generate_phase1_fallback(run_dir)
+                except Exception as exc:
+                    attempts_path = run_dir / "phases" / f"phase{phase}" / "attempts.jsonl"
+                    append_attempt(attempts_path, make_attempt_row(
+                        state.attempt,
+                        "edit_codegen_error",
+                        phase,
+                        exit_reason=f"{type(exc).__name__}: {exc}",
+                    ))
             state = _transition(state, FSMState.PR, run_dir, kind="edit")
             state.persist(run_dir)
             return run_phase_loop(run_dir, phase, gh, budget, dry_run, max_iterations - 1, repos_info, pause_before_fix)

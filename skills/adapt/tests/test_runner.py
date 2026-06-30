@@ -28,6 +28,7 @@ get_phase_status = _runner.get_phase_status
 clear_phase_output = _runner.clear_phase_output
 init_run_dir = _runner.init_run_dir
 resume_run_dir = _runner.resume_run_dir
+run_phase0_bootstrap = _runner.run_phase0_bootstrap
 
 ADAPT_ROOT = Path(__file__).parent.parent
 REPO_ROOT = ADAPT_ROOT.parents[2]
@@ -140,9 +141,13 @@ def test_clear_phase_output_also_clears_attempts(tmp_path):
     phase_dir.mkdir(parents=True)
     Path(phase_output_path(str(tmp_path), 1)).write_text("status: failed\n")
     (phase_dir / "attempts.jsonl").write_text('{"attempt":1,"action":"x","result":"failed"}\n')
+    (phase_dir / "loop_state.yml").write_text("current_state: exit\nexit_reason: human_needed\n")
+    (phase_dir / "escalation.md").write_text("blocked\n")
     clear_phase_output(str(tmp_path), 1)
     assert not Path(phase_output_path(str(tmp_path), 1)).exists()
     assert not (phase_dir / "attempts.jsonl").exists()
+    assert not (phase_dir / "loop_state.yml").exists()
+    assert not (phase_dir / "escalation.md").exists()
 
 
 # -- init_run_dir -------------------------------------------------------------
@@ -184,6 +189,51 @@ def test_init_run_dir_with_options(tmp_path):
     assert inputs["paths"]["omni_path"] == "/opt/loongforge"
     assert inputs["paths"]["megatron_path"] == "/opt/megatron"
     assert inputs["options"]["enable_slice_ckpt"] == "true"
+
+
+def test_phase0_bootstrap_writes_gateable_artifacts(tmp_path):
+    hf_dir = tmp_path / "hf_deepseek_v4"
+    hf_dir.mkdir()
+    (hf_dir / "config.json").write_text(json.dumps({
+        "model_type": "deepseek_v4",
+        "num_hidden_layers": 2,
+        "hidden_size": 128,
+        "vocab_size": 256,
+        "layer_types": ["sliding_attention", "compressed_sparse_attention"],
+        "num_hash_layers": 1,
+        "n_routed_experts": 8,
+        "num_experts_per_tok": 2,
+        "scoring_func": "sqrtsoftplus",
+    }))
+    (hf_dir / "model.safetensors.index.json").write_text(json.dumps({
+        "weight_map": {
+            "model.embed_tokens.weight": "model.safetensors",
+            "layers.0.self_attn.o_a_proj.weight": "model.safetensors",
+            "layers.0.ffn.gate.tid2eid": "model.safetensors",
+            "layers.0.ffn.experts.0.w1.weight": "model.safetensors",
+            "lm_head.weight": "model.safetensors",
+        }
+    }))
+
+    run_dir = str(tmp_path / "bootstrap_run")
+    init_run_dir(
+        hf_ckpt_path=str(hf_dir),
+        model_name="DeepSeek-V4-test",
+        run_dir=run_dir,
+        hf_modeling_path="/tmp/transformers/src/transformers/models/deepseek_v4",
+        omni_path=str(tmp_path / "LoongForge"),
+        megatron_path=str(tmp_path / "Loong-Megatron"),
+    )
+    run_phase0_bootstrap(run_dir)
+
+    assert Path(run_dir, "phases", "phase0", "hf_analysis.yaml").exists()
+    assert Path(run_dir, "phases", "phase0", "reference_impl_analysis.yaml").exists()
+    bridge = yaml.safe_load(Path(run_dir, "phases", "phase0", "bridge_mapping.yaml").read_text())
+    assert bridge["model"] == "deepseek_v4"
+    assert bridge["component_bridge"]
+    output = yaml.safe_load(Path(phase_output_path(run_dir, 0)).read_text())
+    assert output["status"] == "passed"
+    assert output["checks"]["bridge_mapping_gaps_have_guidance"] is True
 
 
 # -- resume_run_dir -----------------------------------------------------------
